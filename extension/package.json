@@ -1,0 +1,34 @@
+{
+  "name": "macrolens-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension that displays nutritional information for food products while shopping online",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-watch.js",
+    "build": "tsc && vite build --mode production && node scripts/copy-popup.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "chrome-extension",
+    "nutrition",
+    "food",
+    "grocery",
+    "walmart"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "@vitest/ui": "^2.1.0",
+    "jsdom": "^25.0.0",
+    "typescript": "^5.5.0",
+    "vite": "^6.4.1",
+    "vitest": "4.0.16"
+  }
+}

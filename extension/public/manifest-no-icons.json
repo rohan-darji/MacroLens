@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "MacroLens",
+  "version": "1.0.0",
+  "description": "Instantly view nutritional information for food products while shopping online",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.walmart.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.walmart.com/ip/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
