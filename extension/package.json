@@ -21,6 +21,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "devDependencies": {
     "@types/chrome": "^0.0.270",
     "@types/node": "^20.14.0",
