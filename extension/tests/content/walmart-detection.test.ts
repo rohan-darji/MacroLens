@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Mock constants
 const WALMART = {
-  PRODUCT_URL_PATTERN: /^https:\/\/www\.walmart\.com\/ip\/.+\/\d+/,
+  PRODUCT_URL_PATTERN: /^https:\/\/www\.walmart\.com\/ip\/[^\/?#]+\/\d+(?:[?#]|$)/,
   PRODUCT_PAGE_INDICATOR: '/ip/',
 };
 
@@ -75,6 +75,16 @@ describe('Walmart Product Page Detection', () => {
 
     it('should reject http (non-secure)', () => {
       const url = 'http://www.walmart.com/ip/Product-Name/12345';
+      expect(isWalmartProductPage(url)).toBe(false);
+    });
+
+    it('should reject URL with extra path after product ID', () => {
+      const url = 'https://www.walmart.com/ip/Product-Name/12345/extra-path';
+      expect(isWalmartProductPage(url)).toBe(false);
+    });
+
+    it('should reject URL with slash in product name', () => {
+      const url = 'https://www.walmart.com/ip/Product/Name/12345';
       expect(isWalmartProductPage(url)).toBe(false);
     });
   });

@@ -7,7 +7,7 @@ import { WALMART, DEBUG_MODE } from '@/config/constants';
  */
 function isWalmartProductPage(): boolean {
   const url = window.location.href;
-  return WALMART.PRODUCT_URL_PATTERN.test(url) || url.includes(WALMART.PRODUCT_PAGE_INDICATOR);
+  return WALMART.PRODUCT_URL_PATTERN.test(url);
 }
 
 /**

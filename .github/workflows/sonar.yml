@@ -43,7 +43,7 @@ jobs:
 
       - name: Run TypeScript tests with coverage
         working-directory: ./extension
-        run: npm run test:coverage
+        run: npm run test:coverage -- --coverage.reportsDirectory=coverage
 
       # SonarCloud Scan
       - name: SonarCloud Scan
