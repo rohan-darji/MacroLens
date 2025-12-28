@@ -16,7 +16,7 @@ export const ENDPOINTS = {
 
 // Walmart Configuration
 export const WALMART = {
-  PRODUCT_URL_PATTERN: /^https:\/\/www\.walmart\.com\/ip\/.+\/\d+$/,
+  PRODUCT_URL_PATTERN: /^https:\/\/www\.walmart\.com\/ip\/[^\/?#]+\/\d+(?:[?#]|$)/,
   PRODUCT_PAGE_INDICATOR: '/ip/',
 } as const;
 
