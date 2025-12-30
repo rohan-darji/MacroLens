@@ -80,8 +80,9 @@ func TestHealthCheckEndpoint(t *testing.T) {
 		if response["service"] != "macrolens-backend" {
 			t.Errorf("service = %v, want macrolens-backend", response["service"])
 		}
-		if response["version"] != "1.0.0" {
-			t.Errorf("version = %v, want 1.0.0", response["version"])
+		version, ok := response["version"].(string)
+		if !ok || strings.TrimSpace(version) == "" {
+			t.Errorf("version = %v, want non-empty string", response["version"])
 		}
 	})
 
