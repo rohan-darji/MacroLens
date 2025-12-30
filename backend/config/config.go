@@ -104,8 +104,11 @@ func loadEnvFile() error {
 		return err
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	// Handle both Unix (\n) and Windows (\r\n) line endings
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	lines := strings.Split(content, "\n")
+
+	for lineNum, line := range lines {
 		line = strings.TrimSpace(line)
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -113,17 +116,41 @@ func loadEnvFile() error {
 		}
 
 		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			// Only set if not already in environment
-			if os.Getenv(key) == "" {
-				os.Setenv(key, value)
-			}
+		if len(parts) != 2 {
+			// Warn about malformed lines (not empty, not comment, but no '=')
+			fmt.Fprintf(os.Stderr, "warning: ignoring malformed line %d in .env: %q\n", lineNum+1, line)
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Strip surrounding quotes from value (supports both single and double quotes)
+		value = unquoteValue(value)
+
+		// Only set if not already in environment
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
 		}
 	}
 
 	return nil
+}
+
+// unquoteValue removes surrounding quotes from a value
+// Supports both double quotes (") and single quotes (')
+func unquoteValue(value string) string {
+	if len(value) >= 2 {
+		// Check for double quotes
+		if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
+			return value[1 : len(value)-1]
+		}
+		// Check for single quotes
+		if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+			return value[1 : len(value)-1]
+		}
+	}
+	return value
 }
 
 // bindEnvVars binds environment variables to config keys
