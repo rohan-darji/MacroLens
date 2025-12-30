@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -45,6 +47,11 @@ type RateLimitConfig struct {
 func Load() (*Config, error) {
 	v := viper.New()
 
+	// Load .env file if it exists
+	if err := loadEnvFile(); err != nil {
+		return nil, fmt.Errorf("error loading .env file: %w", err)
+	}
+
 	// Set config name and paths
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
@@ -55,6 +62,10 @@ func Load() (*Config, error) {
 	// Environment variable settings
 	v.SetEnvPrefix("MACROLENS")
 	v.AutomaticEnv()
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	// Bind specific environment variables to config keys
+	bindEnvVars(v)
 
 	// Set default values
 	setDefaults(v)
@@ -78,6 +89,62 @@ func Load() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// loadEnvFile loads .env file into environment variables
+func loadEnvFile() error {
+	envFile := ".env"
+	if _, err := os.Stat(envFile); os.IsNotExist(err) {
+		// .env file doesn't exist, that's okay
+		return nil
+	}
+
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			// Only set if not already in environment
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+			}
+		}
+	}
+
+	return nil
+}
+
+// bindEnvVars binds environment variables to config keys
+func bindEnvVars(v *viper.Viper) {
+	// Server
+	v.BindEnv("server.port", "MACROLENS_SERVER_PORT")
+	v.BindEnv("server.environment", "MACROLENS_SERVER_ENVIRONMENT")
+	v.BindEnv("server.allowed_origins", "MACROLENS_SERVER_ALLOWED_ORIGINS")
+
+	// USDA
+	v.BindEnv("usda.api_key", "MACROLENS_USDA_API_KEY")
+	v.BindEnv("usda.base_url", "MACROLENS_USDA_BASE_URL")
+
+	// Cache
+	v.BindEnv("cache.type", "MACROLENS_CACHE_TYPE")
+	v.BindEnv("cache.redis_url", "MACROLENS_CACHE_REDIS_URL")
+	v.BindEnv("cache.ttl", "MACROLENS_CACHE_TTL")
+
+	// Rate Limit
+	v.BindEnv("ratelimit.per_ip", "MACROLENS_RATELIMIT_PER_IP")
+	v.BindEnv("ratelimit.usda", "MACROLENS_RATELIMIT_USDA")
 }
 
 // setDefaults sets default configuration values
