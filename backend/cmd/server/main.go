@@ -7,6 +7,9 @@ import (
 
 	"github.com/macrolens/backend/config"
 	httpDelivery "github.com/macrolens/backend/internal/delivery/http"
+	"github.com/macrolens/backend/internal/infrastructure/cache"
+	"github.com/macrolens/backend/internal/infrastructure/usda"
+	"github.com/macrolens/backend/internal/usecase"
 )
 
 func main() {
@@ -21,8 +24,29 @@ func main() {
 	log.Printf("Port: %s", cfg.Server.Port)
 	log.Printf("Cache Type: %s", cfg.Cache.Type)
 
-	// Create HTTP handler
-	handler := httpDelivery.NewHandler()
+	// Initialize infrastructure dependencies
+	memoryCache := cache.NewMemoryCache()
+	log.Printf("Cache TTL: %s", cfg.Cache.TTL)
+
+	usdaClient := usda.NewClient(cfg.USDA.APIKey, cfg.USDA.BaseURL)
+	if cfg.USDA.APIKey != "" {
+		log.Printf("USDA API configured: %s (key: configured)", cfg.USDA.BaseURL)
+	} else {
+		log.Printf("USDA API configured: %s (key: not configured)", cfg.USDA.BaseURL)
+	}
+
+	// Initialize usecase layer
+	nutritionService := usecase.NewNutritionService(
+		memoryCache,
+		usdaClient,
+		usecase.NutritionServiceConfig{
+			CacheTTL:               cfg.Cache.TTL,
+			MinConfidenceThreshold: 40, // 40% minimum match confidence
+		},
+	)
+
+	// Create HTTP handler with dependencies
+	handler := httpDelivery.NewHandler(nutritionService)
 
 	// Setup router
 	router := httpDelivery.SetupRouter(cfg, handler)
