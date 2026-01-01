@@ -37,6 +37,24 @@ func NewClient(apiKey, baseURL string) *Client {
 	}
 }
 
+// doRequest executes an HTTP GET request with proper headers and error handling
+func (c *Client) doRequest(ctx context.Context, reqURL string) (*http.Response, error) {
+	// Create request
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("User-Agent", "MacroLens/1.0")
+
+	// Execute request
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrUSDAAPIFailure, err)
+	}
+
+	return resp, nil
+}
+
 // SearchFoods searches for foods in the USDA database
 func (c *Client) SearchFoods(ctx context.Context, query string) (*domain.USDASearchResponse, error) {
 	// Wait for rate limiter
@@ -54,17 +72,10 @@ func (c *Client) SearchFoods(ctx context.Context, query string) (*domain.USDASea
 
 	reqURL := fmt.Sprintf("%s?%s", endpoint, params.Encode())
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("User-Agent", "MacroLens/1.0")
-
 	// Execute request
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(ctx, reqURL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrUSDAAPIFailure, err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -101,17 +112,10 @@ func (c *Client) GetFoodDetails(ctx context.Context, fdcID string) (*domain.USDA
 
 	reqURL := fmt.Sprintf("%s?%s", endpoint, params.Encode())
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("User-Agent", "MacroLens/1.0")
-
 	// Execute request
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(ctx, reqURL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrUSDAAPIFailure, err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
