@@ -29,8 +29,11 @@ func main() {
 	log.Printf("Cache TTL: %s", cfg.Cache.TTL)
 
 	usdaClient := usda.NewClient(cfg.USDA.APIKey, cfg.USDA.BaseURL)
-	log.Printf("USDA API configured: %s", cfg.USDA.BaseURL)
-	log.Printf("USDA API key length: %d", len(cfg.USDA.APIKey))
+	if cfg.USDA.APIKey != "" {
+		log.Printf("USDA API configured: %s (key: configured)", cfg.USDA.BaseURL)
+	} else {
+		log.Printf("USDA API configured: %s (key: not configured)", cfg.USDA.BaseURL)
+	}
 
 	// Initialize usecase layer
 	nutritionService := usecase.NewNutritionService(

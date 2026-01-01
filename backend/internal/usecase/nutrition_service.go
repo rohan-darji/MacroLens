@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,6 +10,12 @@ import (
 
 	"github.com/macrolens/backend/internal/domain"
 	"github.com/macrolens/backend/internal/infrastructure/usda"
+)
+
+// Package-level compiled regex patterns for performance
+var (
+	nonAlphanumericRegex = regexp.MustCompile(`[^a-z0-9\s]`)
+	multipleSpacesRegex  = regexp.MustCompile(`\s+`)
 )
 
 // NutritionServiceConfig holds configuration for the nutrition service
@@ -82,7 +89,7 @@ func (s *NutritionService) SearchNutrition(
 	matchResult, err := s.matchingService.FindBestMatch(ctx, request, searchResult.Foods)
 	if err != nil {
 		// For low confidence, still return the data with the error
-		if err == domain.ErrLowConfidence && matchResult != nil {
+		if errors.Is(err, domain.ErrLowConfidence) && matchResult != nil {
 			nutritionData := s.mapMatchToNutrition(searchResult.Foods, matchResult)
 			// Don't cache low confidence results
 			return nutritionData, err
@@ -116,14 +123,9 @@ func normalizeForCacheKey(s string) string {
 	if s == "" {
 		return ""
 	}
-	// Convert to lowercase
 	result := strings.ToLower(s)
-	// Remove special characters, keep alphanumeric and spaces
-	reg := regexp.MustCompile(`[^a-z0-9\s]`)
-	result = reg.ReplaceAllString(result, "")
-	// Replace multiple spaces with single space
-	result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
-	// Trim whitespace
+	result = nonAlphanumericRegex.ReplaceAllString(result, "")
+	result = multipleSpacesRegex.ReplaceAllString(result, " ")
 	return strings.TrimSpace(result)
 }
 

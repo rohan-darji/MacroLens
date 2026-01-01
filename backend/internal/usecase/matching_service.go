@@ -9,6 +9,9 @@ import (
 	"github.com/macrolens/backend/internal/domain"
 )
 
+// Package-level compiled regex pattern for performance
+var punctuationRegex = regexp.MustCompile(`[^\w\s]`)
+
 // MatchConfig holds configuration for the matching service
 type MatchConfig struct {
 	MinConfidenceThreshold float64
@@ -99,18 +102,19 @@ func (s *MatchingService) calculateMatchScore(productName, brand, usdaDescriptio
 		score = (float64(intersection) / float64(union)) * 100
 	}
 
+	// Pre-calculate lowercase versions for bonuses
+	productLower := strings.ToLower(productName)
+	usdaLower := strings.ToLower(usdaDescription)
+
 	// Brand matching bonus: +20 points if brand appears in USDA description
 	if brand != "" {
 		brandLower := strings.ToLower(brand)
-		usdaLower := strings.ToLower(usdaDescription)
 		if strings.Contains(usdaLower, brandLower) {
 			score += 20
 		}
 	}
 
 	// Exact substring bonus: +15 points for exact product name substring match
-	productLower := strings.ToLower(productName)
-	usdaLower := strings.ToLower(usdaDescription)
 	if strings.Contains(usdaLower, productLower) || strings.Contains(productLower, usdaLower) {
 		score += 15
 	}
@@ -127,8 +131,7 @@ func (s *MatchingService) calculateMatchScore(productName, brand, usdaDescriptio
 // Removes punctuation and extra whitespace.
 func tokenize(s string) []string {
 	// Remove punctuation and convert to lowercase
-	reg := regexp.MustCompile(`[^\w\s]`)
-	cleaned := reg.ReplaceAllString(strings.ToLower(s), " ")
+	cleaned := punctuationRegex.ReplaceAllString(strings.ToLower(s), " ")
 
 	// Split on whitespace
 	words := strings.Fields(cleaned)

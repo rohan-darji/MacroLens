@@ -44,19 +44,11 @@ func (h *Handler) SearchNutrition(c *gin.Context) {
 		return
 	}
 
-	// Parse request body
+	// Parse and validate request body
 	var request domain.SearchRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Invalid request: " + err.Error(),
-		})
-		return
-	}
-
-	// Validate required fields
-	if request.ProductName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "productName is required",
 		})
 		return
 	}
