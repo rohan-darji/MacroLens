@@ -409,3 +409,133 @@ func TestBuildSearchQuery(t *testing.T) {
 		}
 	})
 }
+
+func TestGetFromCache(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns cache miss for non-existent key", func(t *testing.T) {
+		cache := NewMockCacheRepository()
+		client := NewMockUSDAClient()
+		svc := NewNutritionService(cache, client, NutritionServiceConfig{})
+
+		_, err := svc.getFromCache(ctx, "nonexistent")
+		if !errors.Is(err, domain.ErrCacheMiss) {
+			t.Errorf("error = %v, want ErrCacheMiss", err)
+		}
+	})
+
+	t.Run("returns NutritionData when stored as struct", func(t *testing.T) {
+		cache := NewMockCacheRepository()
+		client := NewMockUSDAClient()
+		svc := NewNutritionService(cache, client, NutritionServiceConfig{})
+
+		expected := &domain.NutritionData{
+			FdcID:       "123",
+			ProductName: "Test Food",
+			Confidence:  85.0,
+		}
+		cache.data["test-key"] = expected
+
+		result, err := svc.getFromCache(ctx, "test-key")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.FdcID != "123" {
+			t.Errorf("FdcID = %v, want 123", result.FdcID)
+		}
+	})
+
+	t.Run("converts map to NutritionData", func(t *testing.T) {
+		cache := NewMockCacheRepository()
+		client := NewMockUSDAClient()
+		svc := NewNutritionService(cache, client, NutritionServiceConfig{})
+
+		// Simulate data stored as map (e.g., from JSON deserialization)
+		dataMap := map[string]interface{}{
+			"fdcId":           "456",
+			"productName":     "Mapped Food",
+			"servingSize":     "100",
+			"servingSizeUnit": "g",
+			"confidence":      90.5,
+			"source":          "USDA",
+			"nutrients": map[string]interface{}{
+				"calories":      150.0,
+				"protein":       8.5,
+				"carbohydrates": 12.0,
+				"totalFat":      7.0,
+			},
+		}
+		cache.data["map-key"] = dataMap
+
+		result, err := svc.getFromCache(ctx, "map-key")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.FdcID != "456" {
+			t.Errorf("FdcID = %v, want 456", result.FdcID)
+		}
+		if result.ProductName != "Mapped Food" {
+			t.Errorf("ProductName = %v, want Mapped Food", result.ProductName)
+		}
+		if result.Nutrients.Calories != 150.0 {
+			t.Errorf("Calories = %v, want 150.0", result.Nutrients.Calories)
+		}
+	})
+
+	t.Run("returns ErrCacheMiss for invalid type", func(t *testing.T) {
+		cache := NewMockCacheRepository()
+		client := NewMockUSDAClient()
+		svc := NewNutritionService(cache, client, NutritionServiceConfig{})
+
+		cache.data["invalid-key"] = "invalid string type"
+
+		_, err := svc.getFromCache(ctx, "invalid-key")
+		if !errors.Is(err, domain.ErrCacheMiss) {
+			t.Errorf("error = %v, want ErrCacheMiss", err)
+		}
+	})
+}
+
+func TestMapMatchToNutrition(t *testing.T) {
+	cache := NewMockCacheRepository()
+	client := NewMockUSDAClient()
+	svc := NewNutritionService(cache, client, NutritionServiceConfig{})
+
+	t.Run("finds and maps matching food", func(t *testing.T) {
+		foods := []domain.USDAFood{
+			{FdcID: 111, Description: "Apple"},
+			{FdcID: 222, Description: "Banana"},
+			{FdcID: 333, Description: "Orange"},
+		}
+		match := &domain.MatchResult{
+			FdcID:      "222",
+			MatchScore: 95.0,
+		}
+
+		result := svc.mapMatchToNutrition(foods, match)
+		if result == nil {
+			t.Fatal("expected result, got nil")
+		}
+		if result.FdcID != "222" {
+			t.Errorf("FdcID = %v, want 222", result.FdcID)
+		}
+		if result.ProductName != "Banana" {
+			t.Errorf("ProductName = %v, want Banana", result.ProductName)
+		}
+	})
+
+	t.Run("returns nil when no match found", func(t *testing.T) {
+		foods := []domain.USDAFood{
+			{FdcID: 111, Description: "Apple"},
+		}
+		match := &domain.MatchResult{
+			FdcID:      "999",
+			MatchScore: 95.0,
+		}
+
+		result := svc.mapMatchToNutrition(foods, match)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+}
