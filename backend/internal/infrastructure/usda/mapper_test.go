@@ -16,7 +16,7 @@ func TestMapToNutritionData(t *testing.T) {
 		{
 			name: "complete food data",
 			usdaFood: &domain.USDAFood{
-				FdcID:       "12345",
+				FdcID:       12345,
 				Description: "Whole Milk",
 				DataType:    "Survey (FNDDS)",
 				Nutrients: []domain.USDANutrient{
@@ -45,7 +45,7 @@ func TestMapToNutritionData(t *testing.T) {
 		{
 			name: "missing some nutrients",
 			usdaFood: &domain.USDAFood{
-				FdcID:       "67890",
+				FdcID:       67890,
 				Description: "Apple",
 				Nutrients: []domain.USDANutrient{
 					{NutrientID: NutrientIDEnergy, Value: 52.0},
@@ -71,7 +71,7 @@ func TestMapToNutritionData(t *testing.T) {
 		{
 			name: "no nutrients",
 			usdaFood: &domain.USDAFood{
-				FdcID:       "11111",
+				FdcID:       11111,
 				Description: "Unknown Food",
 				Nutrients:   []domain.USDANutrient{},
 			},

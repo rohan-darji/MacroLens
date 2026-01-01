@@ -31,7 +31,7 @@ type SearchRequest struct {
 
 // USDAFood represents a food item from the USDA FoodData Central API
 type USDAFood struct {
-	FdcID       string        `json:"fdcId"`
+	FdcID       int           `json:"fdcId"`
 	Description string        `json:"description"`
 	DataType    string        `json:"dataType"`
 	FoodClass   string        `json:"foodClass,omitempty"`

@@ -1,6 +1,8 @@
 package usda
 
 import (
+	"fmt"
+
 	"github.com/macrolens/backend/internal/domain"
 )
 
@@ -17,7 +19,7 @@ func MapToNutritionData(usdaFood *domain.USDAFood, confidence float64) *domain.N
 	nutrients := extractNutrients(usdaFood.Nutrients)
 
 	return &domain.NutritionData{
-		FdcID:           usdaFood.FdcID,
+		FdcID:           fmt.Sprintf("%d", usdaFood.FdcID),
 		ProductName:     usdaFood.Description,
 		ServingSize:     "100", // USDA typically uses 100g as standard serving
 		ServingSizeUnit: "g",

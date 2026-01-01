@@ -59,6 +59,7 @@ func (c *Client) SearchFoods(ctx context.Context, query string) (*domain.USDASea
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("User-Agent", "MacroLens/1.0")
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)
@@ -105,6 +106,7 @@ func (c *Client) GetFoodDetails(ctx context.Context, fdcID string) (*domain.USDA
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("User-Agent", "MacroLens/1.0")
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)
