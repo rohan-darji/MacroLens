@@ -525,4 +525,81 @@ func TestNutritionSearchWithService(t *testing.T) {
 			t.Errorf("Status = %d, want %d", w.Code, http.StatusOK)
 		}
 	})
+
+	t.Run("returns 502 for USDA API failure", func(t *testing.T) {
+		cache := newMockCacheRepository()
+		client := newMockUSDAClient()
+		client.searchError = domain.ErrUSDAAPIFailure
+
+		router := setupTestRouterWithService(cache, client)
+
+		payload := `{"productName":"whole milk"}`
+		req, _ := http.NewRequest("POST", "/api/v1/nutrition/search", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadGateway {
+			t.Errorf("Status = %d, want %d", w.Code, http.StatusBadGateway)
+		}
+
+		var response map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
+
+		if response["error"] != "USDA API temporarily unavailable" {
+			t.Errorf("error = %v, want 'USDA API temporarily unavailable'", response["error"])
+		}
+	})
+
+	t.Run("returns low confidence warning with data", func(t *testing.T) {
+		cache := newMockCacheRepository()
+		client := newMockUSDAClient()
+		client.searchResult = &domain.USDASearchResponse{
+			Foods: []domain.USDAFood{
+				{
+					FdcID:       99999,
+					Description: "Some Unrelated Food",
+					Nutrients: []domain.USDANutrient{
+						{NutrientID: 1008, Value: 100},
+					},
+				},
+			},
+		}
+
+		router := setupTestRouterWithService(cache, client)
+
+		// Request for chocolate cake but USDA returns chicken - low confidence match
+		payload := `{"productName":"chocolate cake deluxe premium"}`
+		req, _ := http.NewRequest("POST", "/api/v1/nutrition/search", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// Low confidence still returns 200 but with warning
+		if w.Code != http.StatusOK {
+			t.Errorf("Status = %d, want %d", w.Code, http.StatusOK)
+		}
+
+		var response map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatalf("Failed to unmarshal response: %v", err)
+		}
+
+		if response["warning"] == nil {
+			t.Error("expected warning field in response for low confidence match")
+		}
+
+		if response["data"] == nil {
+			t.Error("expected data field even with low confidence")
+		}
+
+		warningStr, ok := response["warning"].(string)
+		if !ok || warningStr != "Low confidence match - verify the product manually" {
+			t.Errorf("warning = %v, want 'Low confidence match - verify the product manually'", response["warning"])
+		}
+	})
 }
