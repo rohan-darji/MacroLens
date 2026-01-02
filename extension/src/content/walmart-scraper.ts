@@ -191,33 +191,161 @@ function extractFromDom(): ProductInfo | null {
  * Attempts to extract size/quantity information from product text
  * Examples: "12 oz", "500ml", "1 lb", "pack of 6"
  *
- * Security: Uses non-backtracking patterns to prevent ReDoS attacks.
- * Pattern \d+(?:\.\d+)? is safer than \d+\.?\d* as it doesn't allow
- * ambiguous matching that leads to catastrophic backtracking.
+ * Security: Uses string-based parsing instead of regex to prevent ReDoS attacks.
+ * Input is also limited to 500 characters as an additional safeguard.
  */
 function extractSizeFromText(text: string): string | undefined {
   // Limit input length to prevent DoS on extremely long strings
   const MAX_LENGTH = 500;
   const safeText = text.length > MAX_LENGTH ? text.slice(0, MAX_LENGTH) : text;
+  const lowerText = safeText.toLowerCase();
 
-  // Order matters: more specific patterns must come before less specific ones
-  // Within alternations, longer strings must come first (lbs before lb)
-  // Using \d+(?:\.\d+)? instead of \d+\.?\d* to prevent backtracking
-  const sizePatterns = [
-    /(\d+(?:\.\d+)?\s*(?:ounces|ounce|oz))/i,
-    /(\d+(?:\.\d+)?\s*(?:milliliters|milliliter|ml))/i,
-    /(\d+(?:\.\d+)?\s*(?:pounds|pound|lbs|lb))/i,  // Must be before 'l' pattern
-    /(\d+(?:\.\d+)?\s*(?:kilograms|kilogram|kg))/i, // Must be before 'g' pattern
-    /(\d+(?:\.\d+)?\s*(?:liters|liter|l))(?:\s|$)/i, // Word boundary for standalone 'l'
-    /(\d+(?:\.\d+)?\s*(?:grams|gram|g))(?:\s|$)/i,   // Word boundary for standalone 'g'
-    /(pack of \d+)/i,
-    /(\d+-pack)/i,
+  // Unit suffixes to look for (ordered by specificity - longer first)
+  // Single letter units (l, g) need word boundary check
+  const units: Array<{ unit: string; needsBoundary: boolean }> = [
+    { unit: 'ounces', needsBoundary: false },
+    { unit: 'ounce', needsBoundary: false },
+    { unit: 'oz', needsBoundary: false },
+    { unit: 'milliliters', needsBoundary: false },
+    { unit: 'milliliter', needsBoundary: false },
+    { unit: 'ml', needsBoundary: false },
+    { unit: 'pounds', needsBoundary: false },
+    { unit: 'pound', needsBoundary: false },
+    { unit: 'lbs', needsBoundary: false },
+    { unit: 'lb', needsBoundary: false },
+    { unit: 'kilograms', needsBoundary: false },
+    { unit: 'kilogram', needsBoundary: false },
+    { unit: 'kg', needsBoundary: false },
+    { unit: 'liters', needsBoundary: false },
+    { unit: 'liter', needsBoundary: false },
+    { unit: 'grams', needsBoundary: false },
+    { unit: 'gram', needsBoundary: false },
+    { unit: 'g', needsBoundary: true },  // Need boundary to avoid matching in words
+    { unit: 'l', needsBoundary: true },  // Need boundary to avoid matching in words
   ];
 
-  for (const pattern of sizePatterns) {
-    const match = safeText.match(pattern);
-    if (match) {
-      return match[1].trim();
+  // Find each unit in the text and extract the number before it
+  for (const { unit, needsBoundary } of units) {
+    const unitIndex = lowerText.indexOf(unit);
+    if (unitIndex > 0) {
+      // Check word boundary after unit if needed
+      if (needsBoundary) {
+        const charAfter = lowerText[unitIndex + unit.length];
+        if (charAfter && charAfter !== ' ' && charAfter !== ',' && charAfter !== ')' && charAfter !== '\n' && charAfter !== '\t') {
+          continue; // Not a word boundary, skip
+        }
+      }
+
+      // Look backwards from the unit to find the number
+      const beforeUnit = safeText.slice(0, unitIndex);
+      const numberMatch = extractNumberFromEnd(beforeUnit);
+      if (numberMatch) {
+        // Get the actual unit text with original casing
+        const actualUnit = safeText.slice(unitIndex, unitIndex + unit.length);
+        // Check if there was a space between number and unit
+        const hasSpace = beforeUnit.endsWith(' ') || beforeUnit.endsWith('\t');
+        return hasSpace ? `${numberMatch} ${actualUnit}` : `${numberMatch}${actualUnit}`;
+      }
+    }
+  }
+
+  // Check for "pack of N" format (preserve original case)
+  const packOfIndex = lowerText.indexOf('pack of ');
+  if (packOfIndex !== -1) {
+    const afterPackOf = safeText.slice(packOfIndex + 8);
+    const numberMatch = extractNumberFromStart(afterPackOf);
+    if (numberMatch) {
+      // Get "Pack of" with original casing
+      const packOfText = safeText.slice(packOfIndex, packOfIndex + 8);
+      return `${packOfText}${numberMatch}`;
+    }
+  }
+
+  // Check for "N-pack" format
+  const packIndex = lowerText.indexOf('-pack');
+  if (packIndex > 0) {
+    const beforePack = safeText.slice(0, packIndex);
+    const numberMatch = extractNumberFromEnd(beforePack);
+    if (numberMatch) {
+      return `${numberMatch}-pack`;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extracts a number (with optional decimal) from the end of a string.
+ * Returns the number string or undefined if not found.
+ */
+function extractNumberFromEnd(text: string): string | undefined {
+  let end = text.length;
+  let start = end;
+
+  // Skip trailing whitespace
+  while (start > 0 && text[start - 1] === ' ') {
+    start--;
+    end = start;
+  }
+
+  // Find digits (and optional decimal point)
+  let hasDecimal = false;
+  while (start > 0) {
+    const char = text[start - 1];
+    if (char >= '0' && char <= '9') {
+      start--;
+    } else if (char === '.' && !hasDecimal) {
+      hasDecimal = true;
+      start--;
+    } else {
+      break;
+    }
+  }
+
+  if (start < end) {
+    const result = text.slice(start, end);
+    // Make sure it starts with a digit (not just ".")
+    if (result[0] >= '0' && result[0] <= '9') {
+      return result;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extracts a number from the start of a string.
+ * Returns the number string or undefined if not found.
+ */
+function extractNumberFromStart(text: string): string | undefined {
+  let index = 0;
+
+  // Skip leading whitespace
+  while (index < text.length && text[index] === ' ') {
+    index++;
+  }
+
+  const start = index;
+  let hasDecimal = false;
+
+  // Find digits (and optional decimal point)
+  while (index < text.length) {
+    const char = text[index];
+    if (char >= '0' && char <= '9') {
+      index++;
+    } else if (char === '.' && !hasDecimal) {
+      hasDecimal = true;
+      index++;
+    } else {
+      break;
+    }
+  }
+
+  if (index > start) {
+    const result = text.slice(start, index);
+    // Make sure it starts with a digit
+    if (result[0] >= '0' && result[0] <= '9') {
+      return result;
     }
   }
 
