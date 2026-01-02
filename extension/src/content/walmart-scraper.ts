@@ -190,23 +190,32 @@ function extractFromDom(): ProductInfo | null {
 /**
  * Attempts to extract size/quantity information from product text
  * Examples: "12 oz", "500ml", "1 lb", "pack of 6"
+ *
+ * Security: Uses non-backtracking patterns to prevent ReDoS attacks.
+ * Pattern \d+(?:\.\d+)? is safer than \d+\.?\d* as it doesn't allow
+ * ambiguous matching that leads to catastrophic backtracking.
  */
 function extractSizeFromText(text: string): string | undefined {
+  // Limit input length to prevent DoS on extremely long strings
+  const MAX_LENGTH = 500;
+  const safeText = text.length > MAX_LENGTH ? text.slice(0, MAX_LENGTH) : text;
+
   // Order matters: more specific patterns must come before less specific ones
   // Within alternations, longer strings must come first (lbs before lb)
+  // Using \d+(?:\.\d+)? instead of \d+\.?\d* to prevent backtracking
   const sizePatterns = [
-    /(\d+\.?\d*\s*(?:ounces|ounce|oz))/i,
-    /(\d+\.?\d*\s*(?:milliliters|milliliter|ml))/i,
-    /(\d+\.?\d*\s*(?:pounds|pound|lbs|lb))/i,  // Must be before 'l' pattern
-    /(\d+\.?\d*\s*(?:kilograms|kilogram|kg))/i, // Must be before 'g' pattern
-    /(\d+\.?\d*\s*(?:liters|liter|l)(?:\s|$))/i, // Word boundary for standalone 'l'
-    /(\d+\.?\d*\s*(?:grams|gram|g)(?:\s|$))/i,   // Word boundary for standalone 'g'
+    /(\d+(?:\.\d+)?\s*(?:ounces|ounce|oz))/i,
+    /(\d+(?:\.\d+)?\s*(?:milliliters|milliliter|ml))/i,
+    /(\d+(?:\.\d+)?\s*(?:pounds|pound|lbs|lb))/i,  // Must be before 'l' pattern
+    /(\d+(?:\.\d+)?\s*(?:kilograms|kilogram|kg))/i, // Must be before 'g' pattern
+    /(\d+(?:\.\d+)?\s*(?:liters|liter|l))(?:\s|$)/i, // Word boundary for standalone 'l'
+    /(\d+(?:\.\d+)?\s*(?:grams|gram|g))(?:\s|$)/i,   // Word boundary for standalone 'g'
     /(pack of \d+)/i,
     /(\d+-pack)/i,
   ];
 
   for (const pattern of sizePatterns) {
-    const match = text.match(pattern);
+    const match = safeText.match(pattern);
     if (match) {
       return match[1].trim();
     }

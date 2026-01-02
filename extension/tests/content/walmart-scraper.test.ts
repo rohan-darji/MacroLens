@@ -345,6 +345,41 @@ describe('Walmart Scraper', () => {
 
       expect(result?.size).toBe('12-pack');
     });
+
+    it('should handle decimal sizes', async () => {
+      global.window = {
+        location: { href: 'https://www.walmart.com/ip/Product/12345' },
+      } as any;
+
+      global.document = createDomOnlyDocument('Cheese 1.5 lbs block') as any;
+
+      const { extractProductInfo } = await import('@/content/walmart-scraper');
+      const result = extractProductInfo();
+
+      expect(result?.size).toBe('1.5 lbs');
+    });
+
+    it('should safely handle very long input strings (ReDoS prevention)', async () => {
+      global.window = {
+        location: { href: 'https://www.walmart.com/ip/Product/12345' },
+      } as any;
+
+      // Create a very long string that could cause ReDoS with vulnerable regex
+      const longString = 'Product Name ' + '1'.repeat(1000) + ' oz';
+      global.document = createDomOnlyDocument(longString) as any;
+
+      const { extractProductInfo } = await import('@/content/walmart-scraper');
+      
+      // Should complete quickly without hanging (input is truncated to 500 chars)
+      const startTime = Date.now();
+      const result = extractProductInfo();
+      const elapsed = Date.now() - startTime;
+
+      // Should complete in under 100ms (ReDoS would take much longer)
+      expect(elapsed).toBeLessThan(100);
+      // Won't find size because it's truncated
+      expect(result?.size).toBeUndefined();
+    });
   });
 
   describe('log function', () => {
