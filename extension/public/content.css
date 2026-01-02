@@ -13,20 +13,181 @@
   padding: 16px;
   max-width: 320px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
+/* Loading State */
 .macrolens-loading {
   text-align: center;
   padding: 12px;
   color: #666;
 }
 
+.macrolens-spinner {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 12px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #0071ce;
+  border-radius: 50%;
+  animation: macrolens-spin 1s linear infinite;
+}
+
+@keyframes macrolens-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Error State */
 .macrolens-error {
   color: #d32f2f;
   padding: 12px;
 }
 
+.macrolens-error h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.macrolens-error p {
+  margin: 0 0 12px 0;
+}
+
+/* Content */
 .macrolens-content {
   font-size: 14px;
   color: #333;
+}
+
+/* Header */
+.macrolens-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #0071ce;
+}
+
+.macrolens-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0071ce;
+}
+
+.macrolens-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.macrolens-close-btn:hover {
+  color: #333;
+}
+
+/* Product Info */
+.macrolens-product {
+  margin-bottom: 12px;
+}
+
+.macrolens-product-name {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.macrolens-serving {
+  font-size: 13px;
+  color: #666;
+}
+
+/* Warning */
+.macrolens-warning {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #856404;
+}
+
+/* Nutrients */
+.macrolens-nutrients {
+  margin-bottom: 12px;
+}
+
+.macrolens-nutrient-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.macrolens-nutrient-row:last-child {
+  border-bottom: none;
+}
+
+.macrolens-nutrient-row.macrolens-calories {
+  font-weight: 600;
+  font-size: 15px;
+  color: #0071ce;
+}
+
+.macrolens-nutrient-label {
+  color: #666;
+}
+
+.macrolens-nutrient-value {
+  font-weight: 600;
+  color: #333;
+}
+
+/* Footer */
+.macrolens-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 12px;
+}
+
+.macrolens-confidence {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.macrolens-confidence-high {
+  background: #d4edda;
+  color: #155724;
+}
+
+.macrolens-confidence-medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.macrolens-confidence-low {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.macrolens-source {
+  color: #666;
+  font-style: italic;
 }

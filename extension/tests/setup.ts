@@ -2,44 +2,24 @@
 
 import { vi } from 'vitest';
 
-// Mock Chrome APIs
+// Mock Chrome APIs (not available in jsdom)
 global.chrome = {
   runtime: {
     onMessage: {
       addListener: vi.fn(),
     },
     sendMessage: vi.fn(),
+    lastError: null,
   },
   storage: {
     local: {
-      get: vi.fn(),
-      set: vi.fn(),
-      remove: vi.fn(),
-      clear: vi.fn(),
+      get: vi.fn().mockResolvedValue({}),
+      set: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
     },
   },
 } as any;
 
-// Mock window.location for tests
-delete (global as any).window;
-(global as any).window = {
-  location: {
-    href: '',
-  },
-};
-
-// Mock document for DOM tests
-(global as any).document = {
-  readyState: 'complete',
-  addEventListener: vi.fn(),
-  querySelector: vi.fn(),
-  querySelectorAll: vi.fn(),
-};
-
-// Mock console methods if needed
-global.console = {
-  ...console,
-  log: vi.fn(),
-  error: vi.fn(),
-  warn: vi.fn(),
-};
+// Note: Do NOT override document or window here - jsdom provides these
+// Only mock Chrome-specific APIs that jsdom doesn't provide

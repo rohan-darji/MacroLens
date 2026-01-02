@@ -13,12 +13,19 @@ import (
 	"golang.org/x/time/rate"
 )
 
+const (
+	// maxErrorBodySize limits how much of an error response body we read
+	// to prevent memory issues from large error responses
+	maxErrorBodySize = 4096
+)
+
 // Client handles communication with the USDA FoodData Central API
 type Client struct {
 	httpClient  *http.Client
 	apiKey      string
 	baseURL     string
 	rateLimiter *rate.Limiter
+	debug       bool
 }
 
 // NewClient creates a new USDA API client
@@ -34,7 +41,13 @@ func NewClient(apiKey, baseURL string) *Client {
 		apiKey:      apiKey,
 		baseURL:     baseURL,
 		rateLimiter: limiter,
+		debug:       false, // Set to true only for local development
 	}
+}
+
+// SetDebug enables or disables debug logging
+func (c *Client) SetDebug(enabled bool) {
+	c.debug = enabled
 }
 
 // doRequest executes an HTTP GET request with proper headers and error handling
@@ -57,10 +70,7 @@ func (c *Client) doRequest(ctx context.Context, reqURL string) (*http.Response, 
 
 // SearchFoods searches for foods in the USDA database
 func (c *Client) SearchFoods(ctx context.Context, query string) (*domain.USDASearchResponse, error) {
-	// Wait for rate limiter
-	if err := c.rateLimiter.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("rate limiter error: %w", err)
-	}
+	c.debugLog("SearchFoods called with query: %q", query)
 
 	// Build request URL
 	endpoint := fmt.Sprintf("%s/v1/foods/search", c.baseURL)
@@ -68,34 +78,100 @@ func (c *Client) SearchFoods(ctx context.Context, query string) (*domain.USDASea
 	params.Add("query", query)
 	params.Add("api_key", c.apiKey)
 	params.Add("dataType", "Survey (FNDDS),Foundation,Branded") // Focus on relevant data types
-	params.Add("pageSize", "10") // Get top 10 results
+	params.Add("pageSize", "10")                                // Get top 10 results
 
 	reqURL := fmt.Sprintf("%s?%s", endpoint, params.Encode())
 
-	// Execute request
-	resp, err := c.doRequest(ctx, reqURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	// Retry up to 3 times for transient failures
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		// Wait for rate limiter
+		if err := c.rateLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("rate limiter error: %w", err)
+		}
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%w: status %d, body: %s", domain.ErrUSDAAPIFailure, resp.StatusCode, string(body))
+		// Execute request
+		resp, err := c.doRequest(ctx, reqURL)
+		if err != nil {
+			c.debugLog("Request error (attempt %d): %v", attempt, err)
+			lastErr = err
+			time.Sleep(exponentialBackoff(attempt))
+			continue
+		}
+
+		// Check status code first before reading body
+		if resp.StatusCode != http.StatusOK {
+			// Read limited body for error context
+			body, readErr := readLimitedBody(resp.Body, maxErrorBodySize)
+			resp.Body.Close()
+
+			if readErr != nil {
+				c.debugLog("Error reading response body (attempt %d): %v", attempt, readErr)
+			}
+
+			c.debugLog("API error (attempt %d) - Status: %d, Body: %s", attempt, resp.StatusCode, string(body))
+
+			if resp.StatusCode == http.StatusNotFound {
+				return nil, domain.ErrProductNotFound
+			}
+
+			// Retry only on server errors (5xx) and rate limiting (429)
+			if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+				lastErr = fmt.Errorf("%w: status %d", domain.ErrUSDAAPIFailure, resp.StatusCode)
+				time.Sleep(exponentialBackoff(attempt))
+				continue
+			}
+
+			// For other 4xx errors, don't retry as it's likely a client error
+			return nil, fmt.Errorf("%w: status %d", domain.ErrUSDAAPIFailure, resp.StatusCode)
+		}
+
+		// Read successful response body
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			c.debugLog("Error reading response body: %v", err)
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		// Parse response
+		var searchResp domain.USDASearchResponse
+		if err := json.Unmarshal(body, &searchResp); err != nil {
+			c.debugLog("JSON decode error: %v", err)
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		if len(searchResp.Foods) == 0 {
+			c.debugLog("No foods found for query: %q", query)
+			return nil, domain.ErrProductNotFound
+		}
+
+		c.debugLog("Found %d foods for query: %q", len(searchResp.Foods), query)
+		return &searchResp, nil
 	}
 
-	// Parse response
-	var searchResp domain.USDASearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
+	c.debugLog("All retries failed for query: %q", query)
+	return nil, lastErr
+}
 
-	if len(searchResp.Foods) == 0 {
-		return nil, domain.ErrProductNotFound
+// debugLog logs a message only when debug mode is enabled
+func (c *Client) debugLog(format string, args ...interface{}) {
+	if c.debug {
+		fmt.Printf("[USDA] "+format+"\n", args...)
 	}
+}
 
-	return &searchResp, nil
+// exponentialBackoff returns the sleep duration for a given retry attempt
+// Uses true exponential backoff: 500ms, 1000ms, 2000ms
+func exponentialBackoff(attempt int) time.Duration {
+	return time.Duration(500*(1<<(attempt-1))) * time.Millisecond
+}
+
+// readLimitedBody reads up to maxBytes from a reader
+// This prevents memory issues from large error responses
+func readLimitedBody(r io.ReadCloser, maxBytes int64) ([]byte, error) {
+	limitedReader := io.LimitReader(r, maxBytes)
+	return io.ReadAll(limitedReader)
 }
 
 // GetFoodDetails retrieves detailed nutrition information for a specific food by FDC ID
@@ -124,7 +200,10 @@ func (c *Client) GetFoodDetails(ctx context.Context, fdcID string) (*domain.USDA
 		return nil, domain.ErrProductNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := readLimitedBody(resp.Body, maxErrorBodySize)
+		if readErr != nil {
+			c.debugLog("Error reading error response body: %v", readErr)
+		}
 		return nil, fmt.Errorf("%w: status %d, body: %s", domain.ErrUSDAAPIFailure, resp.StatusCode, string(body))
 	}
 

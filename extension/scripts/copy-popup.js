@@ -11,17 +11,28 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const source = join(__dirname, '../dist/src/popup/index.html');
-const dest = join(__dirname, '../dist/popup.html');
+const htmlSource = join(__dirname, '../src/popup/index.html');
+const htmlDest = join(__dirname, '../dist/popup.html');
+const cssSource = join(__dirname, '../src/popup/popup.css');
+const cssDest = join(__dirname, '../dist/popup.css');
 
 try {
-  if (existsSync(source)) {
-    copyFileSync(source, dest);
+  // Copy popup.html
+  if (existsSync(htmlSource)) {
+    copyFileSync(htmlSource, htmlDest);
     console.log('✓ Copied popup.html to dist/popup.html');
   } else {
-    console.warn('⚠ Warning: dist/src/popup/index.html not found');
+    console.warn('⚠ Warning: src/popup/index.html not found');
+  }
+
+  // Copy popup.css
+  if (existsSync(cssSource)) {
+    copyFileSync(cssSource, cssDest);
+    console.log('✓ Copied popup.css to dist/popup.css');
+  } else {
+    console.warn('⚠ Warning: src/popup/popup.css not found');
   }
 } catch (error) {
-  console.error('✗ Failed to copy popup.html:', error.message);
+  console.error('✗ Failed to copy popup files:', error.message);
   process.exit(1);
 }

@@ -8,6 +8,21 @@ export const DEBUG_MODE = import.meta.env.VITE_DEBUG_MODE === 'true';
 export const CACHE_TTL_DAYS = parseInt(import.meta.env.VITE_CACHE_TTL_DAYS || '7', 10);
 export const CACHE_TTL_MS = CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
 
+/**
+ * Minimum confidence threshold for caching nutrition data.
+ * Results below this threshold are not cached to allow for potential
+ * better matches on subsequent searches.
+ */
+export const CACHE_CONFIDENCE_THRESHOLD = 70;
+
+// Confidence Thresholds for UI Display
+export const CONFIDENCE = {
+  /** Threshold for high confidence matches (green indicator) */
+  HIGH: 90,
+  /** Threshold for medium confidence matches (yellow indicator) */
+  MEDIUM: 70,
+} as const;
+
 // API Endpoints
 export const ENDPOINTS = {
   HEALTH: '/health',

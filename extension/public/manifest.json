@@ -8,7 +8,8 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://www.walmart.com/*"
+    "https://www.walmart.com/*",
+    "http://localhost:8080/*"
   ],
   "background": {
     "service_worker": "background.js",
