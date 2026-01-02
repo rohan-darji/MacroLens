@@ -26,49 +26,57 @@ async function init(): Promise<void> {
   log('Walmart product page detected!', window.location.href);
   isProcessing = true;
 
-  // Wait a bit for the page to fully load
-  await waitForPageLoad();
+  let overlay;
 
-  // Extract product information
-  const productInfo = extractProductInfo();
-
-  if (!productInfo) {
-    log('Failed to extract product information');
-    isProcessing = false;
-    return;
-  }
-
-  log('Product info extracted:', productInfo);
-
-  // Create overlay with loading state
-  const overlay = createOverlay();
-  showLoading(overlay);
-
-  // Send message to background script to fetch nutrition data
   try {
-    const payload: GetNutritionPayload = {
-      productInfo,
-      timestamp: Date.now(),
-    };
+    // Wait a bit for the page to fully load
+    await waitForPageLoad();
 
-    const response = await sendMessage<NutritionResponsePayload>({
-      type: MessageType.GET_NUTRITION,
-      payload,
-    });
+    // Extract product information
+    const productInfo = extractProductInfo();
 
-    if (response.error) {
-      showError(response.error, overlay);
-    } else if (response.data) {
-      showNutrition(response.data, response.cached, overlay);
-    } else {
-      showError('No nutrition data received', overlay);
+    if (!productInfo) {
+      log('Failed to extract product information');
+      return;
+    }
+
+    log('Product info extracted:', productInfo);
+
+    // Create overlay with loading state
+    overlay = createOverlay();
+    showLoading(overlay);
+
+    // Send message to background script to fetch nutrition data
+    try {
+      const payload: GetNutritionPayload = {
+        productInfo,
+        timestamp: Date.now(),
+      };
+
+      const response = await sendMessage<NutritionResponsePayload>({
+        type: MessageType.GET_NUTRITION,
+        payload,
+      });
+
+      if (response.error) {
+        showError(response.error, overlay);
+      } else if (response.data) {
+        showNutrition(response.data, response.cached, overlay);
+      } else {
+        showError('No nutrition data received', overlay);
+      }
+    } catch (error) {
+      log('Error fetching nutrition data:', error);
+      showError(
+        error instanceof Error ? error.message : 'Failed to load nutrition data',
+        overlay
+      );
     }
   } catch (error) {
-    log('Error fetching nutrition data:', error);
-    showError(
-      error instanceof Error ? error.message : 'Failed to load nutrition data',
-      overlay
-    );
+    log('Error during initialization:', error);
+    if (overlay) {
+      removeOverlay();
+    }
   } finally {
     isProcessing = false;
   }
@@ -125,18 +133,64 @@ function setupNavigationListeners(): void {
   log('Navigation listeners set up');
 }
 
+const DEFAULT_DYNAMIC_CONTENT_DELAY_MS = 1000;
+const DEFAULT_MAX_PAGE_LOAD_WAIT_MS = 10000;
+
+type WaitForPageLoadOptions = {
+  /**
+   * Additional delay after the page is reported as loaded, to allow
+   * dynamic content to render (in milliseconds).
+   */
+  dynamicContentDelayMs?: number;
+  /**
+   * Maximum time to wait for the page load event before proceeding
+   * anyway (in milliseconds).
+   */
+  maxWaitMs?: number;
+};
+
 /**
- * Waits for the page to be fully loaded and ready for scraping
+ * Waits for the page to be fully loaded and ready for scraping.
+ *
+ * Defaults preserve the previous behavior (1s post-load delay) but
+ * allow callers/configuration to override the timing if needed.
  */
-function waitForPageLoad(): Promise<void> {
+function waitForPageLoad(options: WaitForPageLoadOptions = {}): Promise<void> {
+  const {
+    dynamicContentDelayMs = DEFAULT_DYNAMIC_CONTENT_DELAY_MS,
+    maxWaitMs = DEFAULT_MAX_PAGE_LOAD_WAIT_MS,
+  } = options;
+
   return new Promise((resolve) => {
+    let resolved = false;
+    let fallbackTimeoutId: number | null = null;
+
+    const resolveOnce = () => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      window.removeEventListener('load', onLoad);
+      if (fallbackTimeoutId !== null) {
+        clearTimeout(fallbackTimeoutId);
+      }
+      // Small delay to allow dynamic content to finish rendering
+      setTimeout(resolve, dynamicContentDelayMs);
+    };
+
+    const onLoad = () => {
+      resolveOnce();
+    };
+
     if (document.readyState === 'complete') {
-      // Page already loaded, wait a bit for dynamic content
-      setTimeout(resolve, 1000);
+      // Page already loaded, just apply the dynamic content delay
+      resolveOnce();
     } else {
-      window.addEventListener('load', () => {
-        setTimeout(resolve, 1000);
-      });
+      // Wait for the load event, but don't wait forever
+      window.addEventListener('load', onLoad, { once: true });
+      fallbackTimeoutId = window.setTimeout(() => {
+        resolveOnce();
+      }, maxWaitMs);
     }
   });
 }
