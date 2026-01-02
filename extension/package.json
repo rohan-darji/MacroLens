@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-watch.js",
-    "build": "tsc && vite build --mode production && node scripts/copy-popup.js",
+    "build": "tsc && node scripts/build.js && node scripts/copy-popup.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

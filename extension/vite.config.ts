@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
-  publicDir: 'public', // Copy public directory to dist
+  publicDir: 'public',
   build: {
     rollupOptions: {
       input: {
@@ -12,15 +12,16 @@ export default defineConfig({
       },
       output: {
         entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
+        chunkFileNames: '[name]-[hash].js',
         assetFileNames: (assetInfo) => {
-          // Put HTML files in root, CSS with proper names
           const fileName = assetInfo.names?.[0] || '';
           if (fileName.endsWith('.html')) {
             return 'popup.html';
           }
           return '[name].[ext]';
         },
+        format: 'iife',
+        inlineDynamicImports: false, // Explicitly disable for multiple entries
       },
     },
     outDir: 'dist',
