@@ -7,6 +7,12 @@ import { MessageType, type GetNutritionPayload, type NutritionResponsePayload } 
 // Track current URL to detect navigation
 let currentUrl = window.location.href;
 let isProcessing = false;
+let navigationTimeoutId: number | null = null;
+
+// Delay before initializing after navigation (allows page content to update)
+const NAVIGATION_DEBOUNCE_MS = 500;
+// Interval for polling URL changes (fallback for SPAs that don't use history API)
+const URL_POLL_INTERVAL_MS = 1000;
 
 /**
  * Main initialization function
@@ -84,19 +90,37 @@ async function init(): Promise<void> {
 
 /**
  * Handle URL changes (SPA navigation)
+ * Uses debouncing to cancel pending operations when rapid navigation occurs
  */
 function handleUrlChange(): void {
   const newUrl = window.location.href;
   if (newUrl !== currentUrl) {
     log('URL changed:', currentUrl, '->', newUrl);
     currentUrl = newUrl;
-    // Small delay to let the page content update
-    setTimeout(() => init(), 500);
+
+    // Cancel any pending navigation callback (debounce)
+    if (navigationTimeoutId !== null) {
+      clearTimeout(navigationTimeoutId);
+      navigationTimeoutId = null;
+    }
+
+    // Remove stale overlay immediately on navigation
+    removeOverlay();
+
+    // Debounced init - will be cancelled if another navigation occurs
+    navigationTimeoutId = window.setTimeout(() => {
+      navigationTimeoutId = null;
+      init();
+    }, NAVIGATION_DEBOUNCE_MS);
   }
 }
 
 /**
  * Set up listeners for SPA navigation
+ * Uses multiple strategies to detect navigation:
+ * 1. popstate event for browser back/forward
+ * 2. history.pushState/replaceState interception for programmatic navigation
+ * 3. Lightweight URL polling as fallback for SPAs that use other navigation methods
  */
 function setupNavigationListeners(): void {
   // Listen for browser back/forward navigation
@@ -116,19 +140,13 @@ function setupNavigationListeners(): void {
     handleUrlChange();
   };
 
-  // Also use MutationObserver as fallback for dynamic content changes
-  const observer = new MutationObserver(() => {
-    // Check if URL changed (some SPAs update URL without using history API)
+  // Lightweight URL polling as fallback for SPAs that don't use standard history API
+  // This is much more performant than a MutationObserver on document.body
+  window.setInterval(() => {
     if (window.location.href !== currentUrl) {
       handleUrlChange();
     }
-  });
-
-  // Observe changes to the document
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
+  }, URL_POLL_INTERVAL_MS);
 
   log('Navigation listeners set up');
 }

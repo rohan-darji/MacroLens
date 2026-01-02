@@ -1,7 +1,7 @@
 // ui-overlay.ts - UI overlay for displaying nutrition information
 
 import type { NutritionData } from '@/types/nutrition';
-import { UI, DEBUG_MODE } from '@/config/constants';
+import { UI, DEBUG_MODE, CONFIDENCE } from '@/config/constants';
 
 /**
  * Logs debug messages if DEBUG_MODE is enabled
@@ -90,7 +90,7 @@ export function showNutrition(data: NutritionData, cached: boolean = false, over
   if (!element) return;
 
   const confidenceClass = getConfidenceClass(data.confidence);
-  const warningHtml = data.confidence < 70 ? `
+  const warningHtml = data.confidence < CONFIDENCE.MEDIUM ? `
     <div class="macrolens-warning">
       Low confidence match - verify manually
     </div>
@@ -106,7 +106,7 @@ export function showNutrition(data: NutritionData, cached: boolean = false, over
       <div class="macrolens-product">
         <div class="macrolens-product-name">${escapeHtml(data.productName)}</div>
         <div class="macrolens-serving">
-          Serving: ${escapeHtml(data.servingSize)} ${escapeHtml(data.servingSizeUnit)}
+          Serving: ${data.servingSize} ${escapeHtml(data.servingSizeUnit)}
         </div>
       </div>
 
@@ -155,16 +155,25 @@ export function showNutrition(data: NutritionData, cached: boolean = false, over
  * Gets CSS class based on confidence score
  */
 function getConfidenceClass(confidence: number): string {
-  if (confidence >= 90) return 'macrolens-confidence-high';
-  if (confidence >= 70) return 'macrolens-confidence-medium';
+  if (confidence >= CONFIDENCE.HIGH) return 'macrolens-confidence-high';
+  if (confidence >= CONFIDENCE.MEDIUM) return 'macrolens-confidence-medium';
   return 'macrolens-confidence-low';
 }
 
 /**
  * Escapes HTML to prevent XSS
+ * Handles all characters significant in HTML and attribute contexts:
+ * &, <, >, ", and '
  */
 function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  // Escape characters that are significant in HTML and attribute contexts
+  const str = String(text);
+  const map: { [key: string]: string } = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return str.replace(/[&<>"']/g, (ch) => map[ch]);
 }

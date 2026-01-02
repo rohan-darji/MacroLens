@@ -398,10 +398,9 @@ describe('Content Script waitForPageLoad', () => {
   });
 });
 
-describe('Content Script MutationObserver', () => {
-  let observerCallback: MutationCallback;
-  let mockObserve: ReturnType<typeof vi.fn>;
-  let MockMutationObserver: typeof MutationObserver;
+describe('Content Script Navigation Debouncing', () => {
+  let mockIsWalmartProductPage: ReturnType<typeof vi.fn>;
+  let mockRemoveOverlay: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -409,20 +408,6 @@ describe('Content Script MutationObserver', () => {
     vi.useFakeTimers();
 
     (global.chrome.runtime as any).lastError = null;
-
-    mockObserve = vi.fn();
-
-    // Create a proper MutationObserver mock class
-    MockMutationObserver = class {
-      constructor(callback: MutationCallback) {
-        observerCallback = callback;
-      }
-      observe = mockObserve;
-      disconnect = vi.fn();
-      takeRecords = vi.fn().mockReturnValue([]);
-    } as unknown as typeof MutationObserver;
-
-    global.MutationObserver = MockMutationObserver;
 
     vi.doMock('@/content/walmart-scraper', () => ({
       isWalmartProductPage: vi.fn().mockReturnValue(false),
@@ -443,6 +428,12 @@ describe('Content Script MutationObserver', () => {
       writable: true,
       configurable: true,
     });
+
+    const scraper = await import('@/content/walmart-scraper');
+    mockIsWalmartProductPage = scraper.isWalmartProductPage as ReturnType<typeof vi.fn>;
+
+    const overlay = await import('@/content/ui-overlay');
+    mockRemoveOverlay = overlay.removeOverlay as ReturnType<typeof vi.fn>;
   });
 
   afterEach(() => {
@@ -450,41 +441,63 @@ describe('Content Script MutationObserver', () => {
     vi.resetModules();
   });
 
-  it('should set up MutationObserver', async () => {
-    await import('@/content/index');
-
-    expect(mockObserve).toHaveBeenCalledWith(document.body, {
-      childList: true,
-      subtree: true,
-    });
-  });
-
-  it('should detect URL change via MutationObserver', async () => {
-    const scraper = await import('@/content/walmart-scraper');
-    const mockIsWalmartProductPage = scraper.isWalmartProductPage as ReturnType<typeof vi.fn>;
-
+  it('should debounce rapid navigation events', async () => {
     await import('@/content/index');
 
     // Advance past initial load
     await vi.advanceTimersByTimeAsync(1000);
 
     mockIsWalmartProductPage.mockClear();
+    mockRemoveOverlay.mockClear();
 
-    // Change URL
+    // Simulate rapid URL changes
     Object.defineProperty(window, 'location', {
-      value: { href: 'https://www.walmart.com/ip/another-product/789' },
+      value: { href: 'https://www.walmart.com/ip/product-1/111' },
       writable: true,
       configurable: true,
     });
+    window.dispatchEvent(new PopStateEvent('popstate'));
 
-    // Trigger MutationObserver callback
-    observerCallback([], {} as MutationObserver);
+    // Quick second navigation before debounce completes
+    await vi.advanceTimersByTimeAsync(200);
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.walmart.com/ip/product-2/222' },
+      writable: true,
+      configurable: true,
+    });
+    window.dispatchEvent(new PopStateEvent('popstate'));
 
-    // Wait for handleUrlChange setTimeout
+    // Wait for debounce (500ms) and init waitForPageLoad (1000ms)
     await vi.advanceTimersByTimeAsync(500);
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(mockIsWalmartProductPage).toHaveBeenCalled();
+    // isWalmartProductPage called only once due to debouncing (first navigation was cancelled)
+    expect(mockIsWalmartProductPage).toHaveBeenCalledTimes(1);
+
+    // removeOverlay is called:
+    // - 2 times immediately in handleUrlChange (once per navigation)
+    // - 1 time in init() when isWalmartProductPage returns false
+    expect(mockRemoveOverlay).toHaveBeenCalledTimes(3);
+  });
+
+  it('should remove overlay immediately on navigation', async () => {
+    await import('@/content/index');
+
+    // Advance past initial load
+    await vi.advanceTimersByTimeAsync(1000);
+
+    mockRemoveOverlay.mockClear();
+
+    // Simulate URL change
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.walmart.com/ip/new-product/456' },
+      writable: true,
+      configurable: true,
+    });
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    // removeOverlay should be called immediately (before debounce delay)
+    expect(mockRemoveOverlay).toHaveBeenCalledTimes(1);
   });
 });
 

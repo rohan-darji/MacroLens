@@ -8,6 +8,10 @@ vi.mock('@/config/constants', () => ({
     OVERLAY_CLASS: 'macrolens-overlay',
   },
   DEBUG_MODE: false,
+  CONFIDENCE: {
+    HIGH: 90,
+    MEDIUM: 70,
+  },
 }));
 
 describe('UI Overlay', () => {

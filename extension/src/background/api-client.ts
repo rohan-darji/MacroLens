@@ -2,7 +2,13 @@
 
 import type { NutritionData, CachedNutrition } from '@/types/nutrition';
 import type { ProductInfo, SearchRequest } from '@/types/product';
-import { API_BASE_URL, ENDPOINTS, CACHE_TTL_MS, DEBUG_MODE } from '@/config/constants';
+import {
+  API_BASE_URL,
+  ENDPOINTS,
+  CACHE_TTL_MS,
+  DEBUG_MODE,
+  CACHE_CONFIDENCE_THRESHOLD,
+} from '@/config/constants';
 
 /**
  * Logs debug messages if DEBUG_MODE is enabled
@@ -65,11 +71,11 @@ export async function searchNutrition(
     log('API response:', nutritionData);
 
     // Cache the result for future use (only if not low confidence)
-    if (nutritionData.confidence >= 70) {
+    if (nutritionData.confidence >= CACHE_CONFIDENCE_THRESHOLD) {
       await setCachedNutrition(cacheKey, nutritionData);
       log('Cached nutrition data');
     } else {
-      log('Not caching low confidence result');
+      log('Not caching low confidence result (below', CACHE_CONFIDENCE_THRESHOLD, '% threshold)');
     }
 
     return {
@@ -96,9 +102,19 @@ function generateCacheKey(productInfo: ProductInfo): string {
 }
 
 /**
- * Normalizes a string for use as cache key component
- * Converts to lowercase, removes special characters, and trims whitespace
- * Must match backend normalization logic
+ * Normalizes a string for use as cache key component.
+ * Converts to lowercase, removes special characters, and trims whitespace.
+ * Must match backend normalization logic.
+ *
+ * INTENTIONAL BEHAVIOR: This normalization removes ALL non-alphanumeric characters
+ * including hyphens, underscores, and punctuation. This means:
+ * - "Coca-Cola" -> "cocacola"
+ * - "Coca Cola" -> "coca cola"
+ *
+ * This is intentional to improve cache hit rates for product name variations
+ * (e.g., "Coca-Cola", "Coca Cola", "CocaCola" should all match the same cache entry).
+ * The trade-off is potential cache collisions, but the confidence score in cached
+ * data helps ensure we still return quality matches.
  */
 function normalizeForCacheKey(s: string): string {
   if (!s) {
