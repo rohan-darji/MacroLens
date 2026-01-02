@@ -1,7 +1,7 @@
 // Tests for content/index.ts - Main content script entry point
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MessageType } from '@/types/messages';
+
 
 // Mock walmart-scraper module
 vi.mock('@/content/walmart-scraper', () => ({
@@ -541,10 +541,9 @@ describe('Content Script Concurrent Request Prevention', () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     const scraper = await import('@/content/walmart-scraper');
-    const initialCallCount = (scraper.isWalmartProductPage as ReturnType<typeof vi.fn>).mock.calls
-      .length;
 
     // Try to trigger another init while first is processing (simulate popstate)
+    window.dispatchEvent(new PopStateEvent('popstate'));
     window.dispatchEvent(new PopStateEvent('popstate'));
     await vi.advanceTimersByTimeAsync(500);
 
