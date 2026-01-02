@@ -572,3 +572,350 @@ describe('Content Script Concurrent Request Prevention', () => {
   });
 });
 
+describe('Content Script URL Polling', () => {
+  let mockIsWalmartProductPage: ReturnType<typeof vi.fn>;
+  let mockRemoveOverlay: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    (global.chrome.runtime as any).lastError = null;
+
+    vi.doMock('@/content/walmart-scraper', () => ({
+      isWalmartProductPage: vi.fn().mockReturnValue(false),
+      extractProductInfo: vi.fn(),
+      log: vi.fn(),
+    }));
+
+    vi.doMock('@/content/ui-overlay', () => ({
+      createOverlay: vi.fn(),
+      showLoading: vi.fn(),
+      showError: vi.fn(),
+      showNutrition: vi.fn(),
+      removeOverlay: vi.fn(),
+    }));
+
+    Object.defineProperty(document, 'readyState', {
+      value: 'complete',
+      writable: true,
+      configurable: true,
+    });
+
+    const scraper = await import('@/content/walmart-scraper');
+    mockIsWalmartProductPage = scraper.isWalmartProductPage as ReturnType<typeof vi.fn>;
+
+    const overlay = await import('@/content/ui-overlay');
+    mockRemoveOverlay = overlay.removeOverlay as ReturnType<typeof vi.fn>;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it('should detect URL change via polling interval', async () => {
+    await import('@/content/index');
+
+    // Advance past initial load
+    await vi.advanceTimersByTimeAsync(1000);
+
+    mockIsWalmartProductPage.mockClear();
+    mockRemoveOverlay.mockClear();
+
+    // Change URL without triggering popstate
+    Object.defineProperty(window, 'location', {
+      value: { href: 'https://www.walmart.com/ip/polled-product/999' },
+      writable: true,
+      configurable: true,
+    });
+
+    // Advance by polling interval (1000ms)
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // Should detect URL change and call removeOverlay
+    expect(mockRemoveOverlay).toHaveBeenCalled();
+
+    // Wait for debounce and init
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(mockIsWalmartProductPage).toHaveBeenCalled();
+  });
+
+  it('should not trigger handleUrlChange when URL has not changed', async () => {
+    await import('@/content/index');
+
+    // Advance past initial load
+    await vi.advanceTimersByTimeAsync(1000);
+
+    mockRemoveOverlay.mockClear();
+
+    // Advance by multiple polling intervals without changing URL
+    await vi.advanceTimersByTimeAsync(3000);
+
+    // removeOverlay should not be called since URL didn't change
+    expect(mockRemoveOverlay).not.toHaveBeenCalled();
+  });
+});
+
+describe('Content Script Error Handling', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    (global.chrome.runtime as any).lastError = null;
+
+    Object.defineProperty(document, 'readyState', {
+      value: 'complete',
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it('should handle error in outer try-catch and remove overlay', async () => {
+    vi.doMock('@/content/walmart-scraper', () => ({
+      isWalmartProductPage: vi.fn().mockReturnValue(true),
+      extractProductInfo: vi.fn().mockImplementation(() => {
+        throw new Error('Extraction failed');
+      }),
+      log: vi.fn(),
+    }));
+
+    const mockRemoveOverlay = vi.fn();
+    vi.doMock('@/content/ui-overlay', () => ({
+      createOverlay: vi.fn().mockReturnValue(document.createElement('div')),
+      showLoading: vi.fn(),
+      showError: vi.fn(),
+      showNutrition: vi.fn(),
+      removeOverlay: mockRemoveOverlay,
+    }));
+
+    await import('@/content/index');
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // The outer catch should handle the error
+    const scraper = await import('@/content/walmart-scraper');
+    expect(scraper.isWalmartProductPage).toHaveBeenCalled();
+  });
+
+  it('should handle Error instance in inner catch block', async () => {
+    vi.doMock('@/content/walmart-scraper', () => ({
+      isWalmartProductPage: vi.fn().mockReturnValue(true),
+      extractProductInfo: vi.fn().mockReturnValue({ name: 'Test' }),
+      log: vi.fn(),
+    }));
+
+    const mockShowError = vi.fn();
+    vi.doMock('@/content/ui-overlay', () => ({
+      createOverlay: vi.fn().mockReturnValue(document.createElement('div')),
+      showLoading: vi.fn(),
+      showError: mockShowError,
+      showNutrition: vi.fn(),
+      removeOverlay: vi.fn(),
+    }));
+
+    (global.chrome.runtime.sendMessage as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('Network failure');
+    });
+
+    await import('@/content/index');
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(mockShowError).toHaveBeenCalledWith('Network failure', expect.any(HTMLElement));
+  });
+});
+
+describe('Content Script waitForPageLoad Edge Cases', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    (global.chrome.runtime as any).lastError = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it('should handle load event firing during wait', async () => {
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+
+    Object.defineProperty(document, 'readyState', {
+      value: 'interactive',
+      writable: true,
+      configurable: true,
+    });
+
+    vi.doMock('@/content/walmart-scraper', () => ({
+      isWalmartProductPage: vi.fn().mockReturnValue(false),
+      extractProductInfo: vi.fn(),
+      log: vi.fn(),
+    }));
+
+    vi.doMock('@/content/ui-overlay', () => ({
+      createOverlay: vi.fn(),
+      showLoading: vi.fn(),
+      showError: vi.fn(),
+      showNutrition: vi.fn(),
+      removeOverlay: vi.fn(),
+    }));
+
+    await import('@/content/index');
+
+    // Simulate load event
+    window.dispatchEvent(new Event('load'));
+
+    // Wait for dynamic content delay
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const scraper = await import('@/content/walmart-scraper');
+    expect(scraper.isWalmartProductPage).toHaveBeenCalled();
+
+    addEventListenerSpy.mockRestore();
+  });
+
+  it('should use fallback timeout when load event does not fire', async () => {
+    Object.defineProperty(document, 'readyState', {
+      value: 'interactive',
+      writable: true,
+      configurable: true,
+    });
+
+    vi.doMock('@/content/walmart-scraper', () => ({
+      isWalmartProductPage: vi.fn().mockReturnValue(false),
+      extractProductInfo: vi.fn(),
+      log: vi.fn(),
+    }));
+
+    vi.doMock('@/content/ui-overlay', () => ({
+      createOverlay: vi.fn(),
+      showLoading: vi.fn(),
+      showError: vi.fn(),
+      showNutrition: vi.fn(),
+      removeOverlay: vi.fn(),
+    }));
+
+    await import('@/content/index');
+
+    // Wait for fallback timeout (10000ms) + dynamic content delay (1000ms)
+    await vi.advanceTimersByTimeAsync(11000);
+
+    const scraper = await import('@/content/walmart-scraper');
+    expect(scraper.isWalmartProductPage).toHaveBeenCalled();
+  });
+});
+
+describe('Content Script history.pushState/replaceState', () => {
+  let mockIsWalmartProductPage: ReturnType<typeof vi.fn>;
+  let mockRemoveOverlay: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    (global.chrome.runtime as any).lastError = null;
+
+    vi.doMock('@/content/walmart-scraper', () => ({
+      isWalmartProductPage: vi.fn().mockReturnValue(false),
+      extractProductInfo: vi.fn(),
+      log: vi.fn(),
+    }));
+
+    vi.doMock('@/content/ui-overlay', () => ({
+      createOverlay: vi.fn(),
+      showLoading: vi.fn(),
+      showError: vi.fn(),
+      showNutrition: vi.fn(),
+      removeOverlay: vi.fn(),
+    }));
+
+    Object.defineProperty(document, 'readyState', {
+      value: 'complete',
+      writable: true,
+      configurable: true,
+    });
+
+    const scraper = await import('@/content/walmart-scraper');
+    mockIsWalmartProductPage = scraper.isWalmartProductPage as ReturnType<typeof vi.fn>;
+
+    const overlay = await import('@/content/ui-overlay');
+    mockRemoveOverlay = overlay.removeOverlay as ReturnType<typeof vi.fn>;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.resetModules();
+  });
+
+  it('should detect URL change via history.pushState', async () => {
+    await import('@/content/index');
+
+    // Advance past initial load
+    await vi.advanceTimersByTimeAsync(1000);
+
+    mockIsWalmartProductPage.mockClear();
+    mockRemoveOverlay.mockClear();
+
+    // Change location.href to simulate what pushState does
+    Object.defineProperty(window, 'location', {
+      value: { href: 'http://localhost/ip/pushed-product/888' },
+      writable: true,
+      configurable: true,
+    });
+
+    // Call pushState with same-origin URL (jsdom restriction)
+    history.pushState({}, '', '/ip/pushed-product/888');
+
+    // Should trigger handleUrlChange and remove overlay immediately
+    expect(mockRemoveOverlay).toHaveBeenCalled();
+
+    // Wait for debounce and init
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(mockIsWalmartProductPage).toHaveBeenCalled();
+  });
+
+  it('should detect URL change via history.replaceState', async () => {
+    await import('@/content/index');
+
+    // Advance past initial load
+    await vi.advanceTimersByTimeAsync(1000);
+
+    mockIsWalmartProductPage.mockClear();
+    mockRemoveOverlay.mockClear();
+
+    // Change location.href to simulate what replaceState does
+    Object.defineProperty(window, 'location', {
+      value: { href: 'http://localhost/ip/replaced-product/777' },
+      writable: true,
+      configurable: true,
+    });
+
+    // Call replaceState with same-origin URL (jsdom restriction)
+    history.replaceState({}, '', '/ip/replaced-product/777');
+
+    // Should trigger handleUrlChange and remove overlay immediately
+    expect(mockRemoveOverlay).toHaveBeenCalled();
+
+    // Wait for debounce and init
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(mockIsWalmartProductPage).toHaveBeenCalled();
+  });
+});
+
