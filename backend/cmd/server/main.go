@@ -41,9 +41,16 @@ func main() {
 		usdaClient,
 		usecase.NutritionServiceConfig{
 			CacheTTL:               cfg.Cache.TTL,
-			MinConfidenceThreshold: 40, // 40% minimum match confidence
+			MinConfidenceThreshold: cfg.Matching.MinConfidenceThreshold,
+			EnableFuzzyMatching:    cfg.Matching.EnableFuzzyMatching,
+			EnableDebugLogging:     cfg.Matching.EnableDebugLogging,
 		},
 	)
+
+	log.Printf("Matching: confidence=%.0f%%, fuzzy=%v, debug=%v",
+		cfg.Matching.MinConfidenceThreshold,
+		cfg.Matching.EnableFuzzyMatching,
+		cfg.Matching.EnableDebugLogging)
 
 	// Create HTTP handler with dependencies
 	handler := httpDelivery.NewHandler(nutritionService)
