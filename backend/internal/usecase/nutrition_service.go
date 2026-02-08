@@ -129,14 +129,96 @@ func normalizeForCacheKey(s string) string {
 	return strings.TrimSpace(result)
 }
 
-// buildSearchQuery builds a search query string from the request
+// buildSearchQuery builds a clean search query from the request.
+// Walmart product names are noisy (e.g., "Great Value Whole Vitamin D Milk, Gallon, 128 fl oz").
+// We strip size info, retail noise, and avoid duplicating brand to get a focused USDA query.
 func buildSearchQuery(request *domain.SearchRequest) string {
-	query := request.ProductName
-	if request.Brand != "" {
-		query = request.Brand + " " + query
+	name := cleanProductName(request.ProductName)
+
+	// Only prepend brand if it's not already in the cleaned name and not a store brand
+	if request.Brand != "" && !isStoreBrand(request.Brand) {
+		brandLower := strings.ToLower(request.Brand)
+		nameLower := strings.ToLower(name)
+		if !strings.Contains(nameLower, brandLower) {
+			name = request.Brand + " " + name
+		}
 	}
-	return query
+
+	return strings.TrimSpace(name)
 }
+
+// cleanProductName strips noise from a Walmart product title to produce a focused food query.
+func cleanProductName(name string) string {
+	// 1. Take only text before first comma (strip size/packaging info)
+	if idx := strings.Index(name, ","); idx > 0 {
+		name = name[:idx]
+	}
+
+	// 2. Sanitize special characters that break the USDA API (nginx returns 400 for & etc.)
+	name = strings.ReplaceAll(name, "&", " and ")
+	name = specialCharsRegex.ReplaceAllString(name, " ")
+
+	// 3. Remove size/quantity patterns like "128 fl oz", "1 gallon", "16.9oz"
+	name = sizePatternRegex.ReplaceAllString(name, " ")
+
+	// 4. Remove common retail noise words
+	nameLower := strings.ToLower(name)
+	for _, noise := range retailNoiseWords {
+		if strings.Contains(nameLower, noise) {
+			// Case-insensitive removal
+			idx := strings.Index(nameLower, noise)
+			name = name[:idx] + name[idx+len(noise):]
+			nameLower = strings.ToLower(name)
+		}
+	}
+
+	// 5. Strip store brand names from the beginning
+	for _, brand := range storeBrands {
+		brandLower := strings.ToLower(brand)
+		if strings.HasPrefix(nameLower, brandLower) {
+			name = strings.TrimSpace(name[len(brand):])
+			nameLower = strings.ToLower(name)
+			break
+		}
+	}
+
+	// 6. Collapse whitespace
+	name = multipleSpacesRegex.ReplaceAllString(name, " ")
+	return strings.TrimSpace(name)
+}
+
+// specialCharsRegex removes characters that cause USDA API/nginx proxy errors
+var specialCharsRegex = regexp.MustCompile(`[#%+@!^*()=\[\]{}<>|\\~` + "`" + `]`)
+
+// isStoreBrand checks if the brand is a Walmart/generic store brand that USDA won't recognize
+func isStoreBrand(brand string) bool {
+	brandLower := strings.ToLower(brand)
+	for _, sb := range storeBrands {
+		if strings.ToLower(sb) == brandLower {
+			return true
+		}
+	}
+	return false
+}
+
+// storeBrands are Walmart/retailer house brands that USDA doesn't index
+var storeBrands = []string{
+	"Great Value", "Marketside", "Sam's Choice", "Equate",
+	"Parent's Choice", "Ol' Roy", "Special Kitty",
+	"Spring Valley", "Mainstays", "George", "Time and Tru",
+}
+
+// retailNoiseWords are common retail terms that add noise to food searches
+var retailNoiseWords = []string{
+	"party size", "family size", "value pack", "bonus size",
+	"club pack", "mega size", "snack size", "fun size",
+	"share size", "king size", "travel size",
+}
+
+// sizePatternRegex matches size/quantity patterns commonly found in product names
+var sizePatternRegex = regexp.MustCompile(
+	`(?i)\b\d+\.?\d*\s*(?:fl\s*oz|oz|ml|liters?|l|gallons?|gal|lbs?|pounds?|kg|grams?|g|ct|count|pk|pack|ea|each|qt|quart|pt|pint)\b`,
+)
 
 // getFromCache retrieves nutrition data from cache
 func (s *NutritionService) getFromCache(ctx context.Context, key string) (*domain.NutritionData, error) {

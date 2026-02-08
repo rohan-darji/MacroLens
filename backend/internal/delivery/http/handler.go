@@ -2,6 +2,7 @@ package http
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +59,9 @@ func (h *Handler) SearchNutrition(c *gin.Context) {
 
 	// Handle errors with appropriate HTTP status codes
 	if err != nil {
+		// Log the actual error for debugging
+		log.Printf("[ERROR] Nutrition search failed - Product: %s, Brand: %s, Error: %v", request.ProductName, request.Brand, err)
+
 		switch {
 		case errors.Is(err, domain.ErrInvalidRequest):
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -79,7 +83,7 @@ func (h *Handler) SearchNutrition(c *gin.Context) {
 			})
 		case errors.Is(err, domain.ErrUSDAAPIFailure):
 			c.JSON(http.StatusBadGateway, gin.H{
-				"error": "USDA API temporarily unavailable",
+				"error": "USDA API temporarily unavailable. This may be due to network issues, rate limiting, or an invalid API key. Check server logs for details.",
 			})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{

@@ -549,8 +549,12 @@ func TestNutritionSearchWithService(t *testing.T) {
 			t.Fatalf("Failed to unmarshal response: %v", err)
 		}
 
-		if response["error"] != "USDA API temporarily unavailable" {
-			t.Errorf("error = %v, want 'USDA API temporarily unavailable'", response["error"])
+		errorMsg, ok := response["error"].(string)
+		if !ok {
+			t.Errorf("error is not a string: %v", response["error"])
+		}
+		if !strings.Contains(errorMsg, "USDA API temporarily unavailable") {
+			t.Errorf("error = %v, want message containing 'USDA API temporarily unavailable'", errorMsg)
 		}
 	})
 

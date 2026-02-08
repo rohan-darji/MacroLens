@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/macrolens/backend/internal/domain"
@@ -115,8 +116,12 @@ func (c *Client) SearchFoods(ctx context.Context, query string) (*domain.USDASea
 				return nil, domain.ErrProductNotFound
 			}
 
-			// Retry only on server errors (5xx) and rate limiting (429)
-			if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			// Retry on server errors (5xx), rate limiting (429), and nginx proxy errors (400 from nginx)
+			isNginxProxyError := resp.StatusCode == http.StatusBadRequest && strings.Contains(string(body), "nginx")
+			if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests || isNginxProxyError {
+				if isNginxProxyError {
+					c.debugLog("Nginx proxy error detected (attempt %d), retrying...", attempt)
+				}
 				lastErr = fmt.Errorf("%w: status %d", domain.ErrUSDAAPIFailure, resp.StatusCode)
 				time.Sleep(exponentialBackoff(attempt))
 				continue
