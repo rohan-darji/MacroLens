@@ -203,56 +203,28 @@ func (s *MatchingService) FindBestMatch(
 	return bestMatch, nil
 }
 
-// calculateMatchScore computes similarity between product name and USDA description.
-// Uses a weighted combination of:
-//   - Product token coverage: what % of the product name tokens appear in the USDA result (most important)
-//   - USDA token coverage: what % of the USDA description tokens appear in the product name
-//   - Brand matching bonus
-//   - Substring match bonus
-//
+// TokenWeight holds a token with its importance weight
+type TokenWeight struct {
+	Token  string
+	Weight float64
+}
+
+// calculateMatchScore computes weighted similarity between product name and USDA description.
+// Uses token-based matching with importance weighting, brand boosting, and data type prioritization.
 // Returns the score (0-100) and the list of matched tokens.
-func (s *MatchingService) calculateMatchScore(productName, brand, usdaDescription string) (float64, []string) {
-	// Clean the product name first (strip size/noise for better matching)
-	cleanedProduct := cleanProductNameForMatching(productName)
-	productTokens := tokenize(cleanedProduct)
-	usdaTokens := tokenize(usdaDescription)
+func (s *MatchingService) calculateMatchScore(productName, brand, usdaDescription, dataType string) (float64, []string) {
+	productTokens := tokenizeWithWeights(productName)
+	usdaTokens := tokenizeWithWeights(usdaDescription)
 
 	if len(productTokens) == 0 || len(usdaTokens) == 0 {
 		return 0, nil
 	}
 
-	// Product coverage: what fraction of the product tokens are found in USDA description
-	// This is the most important signal - if "whole", "milk" both match, that's good
-	productMatched, matchedTokens := findIntersection(productTokens, usdaTokens)
-	productCoverage := float64(productMatched) / float64(len(productTokens))
+	// Calculate weighted similarity
+	baseScore, matchedTokens := s.calculateWeightedSimilarity(productTokens, usdaTokens)
 
-	// USDA coverage: what fraction of USDA tokens are found in the product name
-	// Lower weight - USDA descriptions contain many extra details
-	usdaMatched, _ := findIntersection(usdaTokens, productTokens)
-	usdaCoverage := float64(usdaMatched) / float64(len(usdaTokens))
-
-	// Weighted combination: product coverage matters most (60%), USDA coverage (20%), base Jaccard (20%)
-	union := findUnion(productTokens, usdaTokens)
-	jaccard := float64(productMatched) / float64(union)
-
-	score := (productCoverage*0.60 + usdaCoverage*0.20 + jaccard*0.20) * 100
-
-	// Pre-calculate lowercase versions for bonuses
-	productLower := strings.ToLower(cleanedProduct)
-	usdaLower := strings.ToLower(usdaDescription)
-
-	// Brand matching bonus: +15 points if brand appears in USDA description
-	if brand != "" {
-		brandLower := strings.ToLower(brand)
-		if strings.Contains(usdaLower, brandLower) {
-			score += 15
-		}
-	}
-
-	// Exact substring bonus: +10 points for exact product name substring match
-	if len(productLower) > 3 && (strings.Contains(usdaLower, productLower) || strings.Contains(productLower, usdaLower)) {
-		score += 10
-	}
+	// Apply bonuses
+	score := s.applyBonuses(baseScore, brand, usdaDescription, productName, dataType)
 
 	// Cap score at 100
 	if score > 100 {
@@ -262,24 +234,125 @@ func (s *MatchingService) calculateMatchScore(productName, brand, usdaDescriptio
 	return score, matchedTokens
 }
 
-// cleanProductNameForMatching strips noise from the product name for better token matching.
-// This is separate from cleanProductName (used for USDA search query) because
-// matching can be more aggressive about stripping noise.
-func cleanProductNameForMatching(name string) string {
-	// Strip everything after first comma
-	if idx := strings.Index(name, ","); idx > 0 {
-		name = name[:idx]
+// calculateWeightedSimilarity computes similarity based on token weights
+func (s *MatchingService) calculateWeightedSimilarity(productTokens, usdaTokens []TokenWeight) (float64, []string) {
+	// Build lookup map for USDA tokens
+	usdaSet := make(map[string]TokenWeight)
+	for _, t := range usdaTokens {
+		usdaSet[t.Token] = t
 	}
 
-	// Remove size patterns
-	name = sizePatternRegex.ReplaceAllString(name, " ")
+	var matchedWeight float64
+	var totalProductWeight float64
+	var matchedTokens []string
+	exactMatches := make(map[string]bool)
 
-	// Collapse whitespace
-	name = multipleSpacesRegex.ReplaceAllString(name, " ")
-	return strings.TrimSpace(name)
+	// First pass: exact token matches
+	for _, pt := range productTokens {
+		totalProductWeight += pt.Weight
+		if ut, found := usdaSet[pt.Token]; found {
+			// Use max weight of the two for matched tokens
+			matchedWeight += max(pt.Weight, ut.Weight)
+			matchedTokens = append(matchedTokens, pt.Token)
+			exactMatches[pt.Token] = true
+		}
+	}
+
+	// Second pass: fuzzy matching for unmatched tokens (if enabled)
+	if s.enableFuzzyMatching {
+		for _, pt := range productTokens {
+			if exactMatches[pt.Token] {
+				continue // Already matched exactly
+			}
+			for _, ut := range usdaTokens {
+				if fuzzyTokenMatch(pt.Token, ut.Token, s.fuzzyEditDistance) {
+					// Fuzzy match gets reduced weight
+					matchedWeight += max(pt.Weight, ut.Weight) * fuzzyWeightFactor
+					matchedTokens = append(matchedTokens, pt.Token+"~"+ut.Token)
+					break
+				}
+			}
+		}
+	}
+
+	// Score based on how much of the product's important terms were matched
+	if totalProductWeight == 0 {
+		return 0, nil
+	}
+
+	score := (matchedWeight / totalProductWeight) * baseScoreMultiplier
+	return score, matchedTokens
 }
 
-// sizePatternRegex is declared in nutrition_service.go
+// applyBonuses adds scoring bonuses for brand match, data type, and substring match
+func (s *MatchingService) applyBonuses(baseScore float64, brand, usdaDesc, productName, dataType string) float64 {
+	score := baseScore
+
+	usdaLower := strings.ToLower(usdaDesc)
+
+	// Brand matching bonus
+	if brand != "" {
+		brandLower := strings.ToLower(brand)
+		if strings.Contains(usdaLower, brandLower) {
+			score += brandMatchBonus
+			if s.enableDebugLogging {
+				log.Printf("[MATCH]   Brand bonus: +%.0f (brand %q found in description)", brandMatchBonus, brand)
+			}
+		}
+	}
+
+	// USDA Data Type bonus
+	var dataTypeBonus float64
+	switch dataType {
+	case "Branded":
+		dataTypeBonus = dataTypeBrandedBonus
+	case "Survey (FNDDS)":
+		dataTypeBonus = dataTypeSurveyBonus
+	case "Foundation":
+		dataTypeBonus = dataTypeFoundationBonus
+	}
+	if dataTypeBonus > 0 {
+		score += dataTypeBonus
+		if s.enableDebugLogging {
+			log.Printf("[MATCH]   DataType bonus: +%.0f (%s)", dataTypeBonus, dataType)
+		}
+	}
+
+	// Substring match bonus (only for significant matches > 5 chars)
+	productLower := strings.ToLower(productName)
+	if len(productLower) > 5 && strings.Contains(usdaLower, productLower) {
+		score += substringMatchBonus
+		if s.enableDebugLogging {
+			log.Printf("[MATCH]   Substring bonus: +%.0f (product name found in description)", substringMatchBonus)
+		}
+	}
+
+	return score
+}
+
+// tokenizeWithWeights splits a string into weighted tokens
+func tokenizeWithWeights(s string) []TokenWeight {
+	tokens := tokenize(s)
+	weighted := make([]TokenWeight, 0, len(tokens))
+
+	for _, token := range tokens {
+		weight := getTokenWeight(token)
+		weighted = append(weighted, TokenWeight{Token: token, Weight: weight})
+	}
+
+	return weighted
+}
+
+// getTokenWeight returns the importance weight for a token
+func getTokenWeight(token string) float64 {
+	if foodTerms[token] {
+		return weightFood
+	}
+	if descriptiveTerms[token] {
+		return weightDescriptive
+	}
+	return weightDefault
+}
 
 // tokenize splits a string into normalized lowercase tokens.
 // Removes punctuation, stop words, product noise, and pure numeric tokens.

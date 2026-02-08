@@ -99,10 +99,11 @@ func TestFindBestMatch(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Brand match should increase score (may be capped at 100)
-		if resultWithBrand.MatchScore <= resultWithoutBrand.MatchScore {
-			t.Errorf("Brand match score (%v) should be higher than without brand (%v)",
-				resultWithBrand.MatchScore, resultWithoutBrand.MatchScore)
+		// Brand match should add ~25 points, but may vary slightly due to weighted scoring
+		// With brand bonus constant at 25.0, we expect close to that
+		scoreDiff := resultWithBrand.MatchScore - resultWithoutBrand.MatchScore
+		if scoreDiff < 15 || scoreDiff > 30 {
+			t.Errorf("Brand bonus = %v, want between 15 and 30", scoreDiff)
 		}
 	})
 
