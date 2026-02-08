@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -399,13 +400,41 @@ func TestBuildSearchQuery(t *testing.T) {
 		}
 	})
 
-	t.Run("prepends brand to product name", func(t *testing.T) {
+	t.Run("prepends brand to product name when not a store brand", func(t *testing.T) {
 		query := buildSearchQuery(&domain.SearchRequest{
 			ProductName: "whole milk",
+			Brand:       "Horizon",
+		})
+		if query != "Horizon whole milk" {
+			t.Errorf("query = %v, want 'Horizon whole milk'", query)
+		}
+	})
+
+	t.Run("skips store brand in query", func(t *testing.T) {
+		query := buildSearchQuery(&domain.SearchRequest{
+			ProductName: "Great Value Whole Vitamin D Milk, Gallon, 128 fl oz",
 			Brand:       "Great Value",
 		})
-		if query != "Great Value whole milk" {
-			t.Errorf("query = %v, want 'Great Value whole milk'", query)
+		// Should strip store brand, comma-separated size info, and size patterns
+		if strings.Contains(query, "Great Value") {
+			t.Errorf("query = %v, should not contain store brand 'Great Value'", query)
+		}
+		if strings.Contains(query, "128") {
+			t.Errorf("query = %v, should not contain size info '128'", query)
+		}
+	})
+
+	t.Run("strips size and noise from product name", func(t *testing.T) {
+		query := buildSearchQuery(&domain.SearchRequest{
+			ProductName: "Cheetos Crunchy Cheese Flavored Snacks, Party Size, 15 oz Bag",
+			Brand:       "Cheetos",
+		})
+		// Should strip after first comma, but keep brand since it's not a store brand
+		if strings.Contains(query, "15 oz") {
+			t.Errorf("query = %v, should not contain '15 oz'", query)
+		}
+		if strings.Contains(query, "Party Size") {
+			t.Errorf("query = %v, should not contain 'Party Size'", query)
 		}
 	})
 }

@@ -95,7 +95,7 @@ describe('UI Overlay', () => {
 
       expect(overlay.innerHTML).toContain('macrolens-loading');
       expect(overlay.innerHTML).toContain('macrolens-spinner');
-      expect(overlay.innerHTML).toContain('Loading nutrition info...');
+      expect(overlay.innerHTML).toContain('Analyzing nutrition data...');
     });
 
     it('should find overlay by ID if not provided', async () => {
@@ -117,7 +117,7 @@ describe('UI Overlay', () => {
       showError('Test error message', overlay);
 
       expect(overlay.innerHTML).toContain('macrolens-error');
-      expect(overlay.innerHTML).toContain('Error');
+      expect(overlay.innerHTML).toContain('Unable to Load');
       expect(overlay.innerHTML).toContain('Test error message');
     });
 
@@ -159,10 +159,10 @@ describe('UI Overlay', () => {
 
       showNutrition(mockNutritionData, false, overlay);
 
-      expect(overlay.innerHTML).toContain('Nutrition Info');
+      expect(overlay.innerHTML).toContain('MacroLens');
       expect(overlay.innerHTML).toContain('Test Product');
       expect(overlay.innerHTML).toContain('150'); // calories
-      expect(overlay.innerHTML).toContain('8.0g'); // protein
+      expect(overlay.innerHTML).toContain('8.0'); // protein value
     });
 
     it('should show cached indicator when data is from cache', async () => {
@@ -183,13 +183,14 @@ describe('UI Overlay', () => {
       expect(overlay.innerHTML).toContain('USDA');
     });
 
-    it('should display confidence percentage', async () => {
+    it('should display confidence label', async () => {
       const { createOverlay, showNutrition } = await import('@/content/ui-overlay');
       const overlay = createOverlay();
 
       showNutrition(mockNutritionData, false, overlay);
 
-      expect(overlay.innerHTML).toContain('85%');
+      // 85% confidence shows "Good Match" label
+      expect(overlay.innerHTML).toContain('Good Match');
     });
 
     it('should show warning for low confidence matches', async () => {

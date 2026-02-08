@@ -29,10 +29,17 @@ func main() {
 	log.Printf("Cache TTL: %s", cfg.Cache.TTL)
 
 	usdaClient := usda.NewClient(cfg.USDA.APIKey, cfg.USDA.BaseURL)
+
+	// Enable debug mode in development environment
+	if cfg.Server.Environment == "development" {
+		usdaClient.SetDebug(true)
+		log.Printf("USDA client debug mode enabled")
+	}
+
 	if cfg.USDA.APIKey != "" {
-		log.Printf("USDA API configured: %s (key: configured)", cfg.USDA.BaseURL)
+		log.Printf("USDA API configured: %s (key: %s...)", cfg.USDA.BaseURL, cfg.USDA.APIKey[:8])
 	} else {
-		log.Printf("USDA API configured: %s (key: not configured)", cfg.USDA.BaseURL)
+		log.Printf("WARNING: USDA API configured: %s (key: NOT CONFIGURED - API calls will fail!)", cfg.USDA.BaseURL)
 	}
 
 	// Initialize usecase layer
