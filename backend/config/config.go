@@ -15,6 +15,14 @@ type Config struct {
 	USDA      USDAConfig
 	Cache     CacheConfig
 	RateLimit RateLimitConfig
+	Matching  MatchingConfig
+}
+
+// MatchingConfig holds product matching algorithm configuration
+type MatchingConfig struct {
+	MinConfidenceThreshold float64 `mapstructure:"min_confidence_threshold"`
+	EnableFuzzyMatching    bool    `mapstructure:"enable_fuzzy_matching"`
+	EnableDebugLogging     bool    `mapstructure:"enable_debug_logging"`
 }
 
 // ServerConfig holds server-related configuration
@@ -172,6 +180,11 @@ func bindEnvVars(v *viper.Viper) {
 	// Rate Limit
 	v.BindEnv("ratelimit.per_ip", "MACROLENS_RATELIMIT_PER_IP")
 	v.BindEnv("ratelimit.usda", "MACROLENS_RATELIMIT_USDA")
+
+	// Matching
+	v.BindEnv("matching.min_confidence_threshold", "MACROLENS_MATCHING_MIN_CONFIDENCE")
+	v.BindEnv("matching.enable_fuzzy_matching", "MACROLENS_MATCHING_ENABLE_FUZZY")
+	v.BindEnv("matching.enable_debug_logging", "MACROLENS_MATCHING_DEBUG")
 }
 
 // setDefaults sets default configuration values
@@ -191,6 +204,11 @@ func setDefaults(v *viper.Viper) {
 	// Rate limit defaults
 	v.SetDefault("ratelimit.per_ip", 100)
 	v.SetDefault("ratelimit.usda", 1000)
+
+	// Matching defaults
+	v.SetDefault("matching.min_confidence_threshold", 40.0)
+	v.SetDefault("matching.enable_fuzzy_matching", true)
+	v.SetDefault("matching.enable_debug_logging", false)
 }
 
 // validate validates the configuration

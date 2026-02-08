@@ -22,14 +22,17 @@ var (
 type NutritionServiceConfig struct {
 	CacheTTL               time.Duration
 	MinConfidenceThreshold float64
+	EnableFuzzyMatching    bool
+	EnableDebugLogging     bool
 }
 
 // NutritionService handles nutrition data lookup with caching
 type NutritionService struct {
-	cache           domain.CacheRepository
-	usdaClient      domain.USDAClient
-	matchingService *MatchingService
-	cacheTTL        time.Duration
+	cache             domain.CacheRepository
+	usdaClient        domain.USDAClient
+	matchingService   *MatchingService
+	queryPreprocessor *QueryPreprocessor
+	cacheTTL          time.Duration
 }
 
 // NewNutritionService creates a new nutrition service with dependencies
@@ -40,7 +43,11 @@ func NewNutritionService(
 ) *NutritionService {
 	matchingService := NewMatchingService(MatchConfig{
 		MinConfidenceThreshold: config.MinConfidenceThreshold,
+		EnableFuzzyMatching:    config.EnableFuzzyMatching,
+		EnableDebugLogging:     config.EnableDebugLogging,
 	})
+
+	queryPreprocessor := NewQueryPreprocessor(config.EnableDebugLogging)
 
 	cacheTTL := config.CacheTTL
 	if cacheTTL == 0 {
@@ -48,10 +55,11 @@ func NewNutritionService(
 	}
 
 	return &NutritionService{
-		cache:           cache,
-		usdaClient:      usdaClient,
-		matchingService: matchingService,
-		cacheTTL:        cacheTTL,
+		cache:             cache,
+		usdaClient:        usdaClient,
+		matchingService:   matchingService,
+		queryPreprocessor: queryPreprocessor,
+		cacheTTL:          cacheTTL,
 	}
 }
 
@@ -74,8 +82,8 @@ func (s *NutritionService) SearchNutrition(
 		return cached, nil
 	}
 
-	// Cache miss - search USDA
-	query := buildSearchQuery(request)
+	// Cache miss - search USDA with preprocessed query
+	query := s.queryPreprocessor.PreprocessQuery(request.ProductName, request.Brand)
 	searchResult, err := s.usdaClient.SearchFoods(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrUSDAAPIFailure, err)

@@ -239,30 +239,31 @@ func TestTokenize(t *testing.T) {
 func TestCalculateMatchScore(t *testing.T) {
 	svc := NewMatchingService(MatchConfig{MinConfidenceThreshold: 40})
 
-	t.Run("returns 100 for identical strings after bonuses", func(t *testing.T) {
-		score, _ := svc.calculateMatchScore("whole milk", "", "whole milk")
-		// Jaccard = 1.0 (100%) + substring bonus (15) = capped at 100
-		if score != 100 {
-			t.Errorf("score = %v, want 100", score)
+	t.Run("returns high score for identical strings after bonuses", func(t *testing.T) {
+		score, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "")
+		// With weighted scoring: milk (3.0) + whole (2.0) = 5.0 total weight
+		// 100% match = 70 base + 10 substring bonus = 80+
+		if score < 70 {
+			t.Errorf("score = %v, want >= 70 for identical strings", score)
 		}
 	})
 
 	t.Run("returns 0 for completely different strings", func(t *testing.T) {
-		score, _ := svc.calculateMatchScore("chocolate cake", "", "grilled salmon")
+		score, _ := svc.calculateMatchScore("chocolate cake", "", "grilled salmon", "")
 		if score > 20 {
 			t.Errorf("score = %v, want < 20 for unrelated items", score)
 		}
 	})
 
 	t.Run("returns partial score for partial match", func(t *testing.T) {
-		score, _ := svc.calculateMatchScore("whole milk", "", "whole milk reduced fat")
+		score, _ := svc.calculateMatchScore("whole milk", "", "whole milk reduced fat", "")
 		if score < 40 || score > 100 {
 			t.Errorf("score = %v, want between 40 and 100", score)
 		}
 	})
 
 	t.Run("handles empty product name", func(t *testing.T) {
-		score, matched := svc.calculateMatchScore("", "", "whole milk")
+		score, matched := svc.calculateMatchScore("", "", "whole milk", "")
 		if score != 0 {
 			t.Errorf("score = %v, want 0", score)
 		}
@@ -272,12 +273,42 @@ func TestCalculateMatchScore(t *testing.T) {
 	})
 
 	t.Run("handles empty USDA description", func(t *testing.T) {
-		score, matched := svc.calculateMatchScore("whole milk", "", "")
+		score, matched := svc.calculateMatchScore("whole milk", "", "", "")
 		if score != 0 {
 			t.Errorf("score = %v, want 0", score)
 		}
 		if len(matched) != 0 {
 			t.Errorf("matched = %v, want empty", matched)
+		}
+	})
+
+	t.Run("applies data type bonus for Branded", func(t *testing.T) {
+		scoreBranded, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "Branded")
+		scoreNoType, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "")
+		// Branded should add 10 points
+		diff := scoreBranded - scoreNoType
+		if diff < 9 || diff > 11 {
+			t.Errorf("Branded bonus = %v, want approximately 10", diff)
+		}
+	})
+
+	t.Run("applies data type bonus for Survey", func(t *testing.T) {
+		scoreSurvey, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "Survey (FNDDS)")
+		scoreNoType, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "")
+		// Survey should add 5 points
+		diff := scoreSurvey - scoreNoType
+		if diff < 4 || diff > 6 {
+			t.Errorf("Survey bonus = %v, want approximately 5", diff)
+		}
+	})
+
+	t.Run("applies data type bonus for Foundation", func(t *testing.T) {
+		scoreFoundation, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "Foundation")
+		scoreNoType, _ := svc.calculateMatchScore("whole milk", "", "whole milk", "")
+		// Foundation should add 3 points
+		diff := scoreFoundation - scoreNoType
+		if diff < 2 || diff > 4 {
+			t.Errorf("Foundation bonus = %v, want approximately 3", diff)
 		}
 	})
 }
@@ -340,4 +371,301 @@ func TestFindUnion(t *testing.T) {
 			t.Errorf("count = %v, want 0", count)
 		}
 	})
+}
+
+func TestTokenizeWithWeights(t *testing.T) {
+	t.Run("assigns high weight to food terms", func(t *testing.T) {
+		tokens := tokenizeWithWeights("chicken breast milk")
+		for _, tw := range tokens {
+			if tw.Token == "chicken" || tw.Token == "milk" {
+				if tw.Weight != weightFood {
+					t.Errorf("token %q weight = %v, want %v (food)", tw.Token, tw.Weight, weightFood)
+				}
+			}
+		}
+	})
+
+	t.Run("assigns medium weight to descriptive terms", func(t *testing.T) {
+		tokens := tokenizeWithWeights("whole organic fresh")
+		for _, tw := range tokens {
+			if tw.Token == "whole" || tw.Token == "organic" || tw.Token == "fresh" {
+				if tw.Weight != weightDescriptive {
+					t.Errorf("token %q weight = %v, want %v (descriptive)", tw.Token, tw.Weight, weightDescriptive)
+				}
+			}
+		}
+	})
+
+	t.Run("assigns default weight to other terms", func(t *testing.T) {
+		tokens := tokenizeWithWeights("premium deluxe")
+		for _, tw := range tokens {
+			// These aren't food or descriptive terms, should get default weight
+			if tw.Weight != weightDefault {
+				t.Errorf("token %q weight = %v, want %v (default)", tw.Token, tw.Weight, weightDefault)
+			}
+		}
+	})
+}
+
+func TestGetTokenWeight(t *testing.T) {
+	testCases := []struct {
+		token string
+		want  float64
+	}{
+		{"milk", weightFood},
+		{"chicken", weightFood},
+		{"bread", weightFood},
+		{"whole", weightDescriptive},
+		{"organic", weightDescriptive},
+		{"fresh", weightDescriptive},
+		{"xyz", weightDefault},
+		{"abc", weightDefault},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.token, func(t *testing.T) {
+			got := getTokenWeight(tc.token)
+			if got != tc.want {
+				t.Errorf("getTokenWeight(%q) = %v, want %v", tc.token, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsNumeric(t *testing.T) {
+	testCases := []struct {
+		input string
+		want  bool
+	}{
+		{"123", true},
+		{"12", true},
+		{"0", true},
+		{"", false},
+		{"12a", false},
+		{"abc", false},
+		{"12.5", false}, // dot is not a digit
+		{"12 34", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.input, func(t *testing.T) {
+			got := isNumeric(tc.input)
+			if got != tc.want {
+				t.Errorf("isNumeric(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLevenshteinDistance(t *testing.T) {
+	testCases := []struct {
+		s1   string
+		s2   string
+		want int
+	}{
+		{"", "", 0},
+		{"a", "", 1},
+		{"", "a", 1},
+		{"abc", "abc", 0},
+		{"abc", "abd", 1},       // substitution
+		{"abc", "abcd", 1},      // insertion
+		{"abcd", "abc", 1},      // deletion
+		{"kitten", "sitting", 3}, // classic example
+		{"milk", "mlik", 2},     // transposition (2 edits)
+		{"chicken", "chiken", 1}, // missing letter
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.s1+"_"+tc.s2, func(t *testing.T) {
+			got := levenshteinDistance(tc.s1, tc.s2)
+			if got != tc.want {
+				t.Errorf("levenshteinDistance(%q, %q) = %v, want %v", tc.s1, tc.s2, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFuzzyTokenMatch(t *testing.T) {
+	testCases := []struct {
+		token1    string
+		token2    string
+		threshold int
+		want      bool
+	}{
+		{"milk", "milk", 1, true},            // identical
+		{"milk", "mlik", 1, false},           // short token, fuzzy disabled
+		{"chicken", "chiken", 1, true},       // edit distance 1
+		{"chicken", "chickn", 1, true},       // edit distance 1
+		{"chicken", "chikin", 1, false},      // edit distance 2
+		{"chicken", "chikin", 2, true},       // within threshold 2
+		{"abc", "abd", 1, false},             // too short for fuzzy
+		{"abcde", "abcdf", 1, true},          // 5 chars, edit distance 1
+		{"organic", "organc", 1, true},       // typo (missing i)
+		{"strawberry", "strawbery", 1, true}, // missing letter
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.token1+"_"+tc.token2, func(t *testing.T) {
+			got := fuzzyTokenMatch(tc.token1, tc.token2, tc.threshold)
+			if got != tc.want {
+				t.Errorf("fuzzyTokenMatch(%q, %q, %d) = %v, want %v",
+					tc.token1, tc.token2, tc.threshold, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFuzzyMatchingEnabled(t *testing.T) {
+	t.Run("fuzzy matching finds close matches when enabled", func(t *testing.T) {
+		svc := NewMatchingService(MatchConfig{
+			MinConfidenceThreshold: 40,
+			EnableFuzzyMatching:    true,
+			FuzzyEditDistance:      1,
+		})
+		ctx := context.Background()
+
+		// "chiken" is a typo for "chicken"
+		request := &domain.SearchRequest{ProductName: "grilled chiken breast"}
+		foods := []domain.USDAFood{
+			{FdcID: 123, Description: "Grilled Chicken Breast", DataType: "Foundation"},
+		}
+
+		result, err := svc.FindBestMatch(ctx, request, foods)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Check that fuzzy match token is in matched tokens
+		hasFuzzy := false
+		for _, token := range result.MatchedTokens {
+			if token == "chiken~chicken" {
+				hasFuzzy = true
+				break
+			}
+		}
+		if !hasFuzzy {
+			t.Errorf("expected fuzzy match token 'chiken~chicken' in %v", result.MatchedTokens)
+		}
+	})
+
+	t.Run("fuzzy matching disabled does not find typos", func(t *testing.T) {
+		svc := NewMatchingService(MatchConfig{
+			MinConfidenceThreshold: 40,
+			EnableFuzzyMatching:    false,
+		})
+		ctx := context.Background()
+
+		request := &domain.SearchRequest{ProductName: "grilled chiken breast"}
+		foods := []domain.USDAFood{
+			{FdcID: 123, Description: "Grilled Chicken Breast", DataType: "Foundation"},
+		}
+
+		result, _ := svc.FindBestMatch(ctx, request, foods)
+
+		// Check that there's no fuzzy match token
+		for _, token := range result.MatchedTokens {
+			if token == "chiken~chicken" {
+				t.Error("fuzzy match should not occur when disabled")
+			}
+		}
+	})
+}
+
+func TestTokenizeFiltersNumericTokens(t *testing.T) {
+	t.Run("filters pure numeric tokens", func(t *testing.T) {
+		tokens := tokenize("milk 128 fl oz 12 pack")
+		for _, token := range tokens {
+			if isNumeric(token) {
+				t.Errorf("numeric token should be filtered: %v", token)
+			}
+		}
+		// "fl" and "oz" should also be filtered as stop words
+		found := make(map[string]bool)
+		for _, token := range tokens {
+			found[token] = true
+		}
+		if found["fl"] || found["oz"] || found["pack"] {
+			t.Errorf("stop words should be filtered, got tokens: %v", tokens)
+		}
+		if !found["milk"] {
+			t.Errorf("'milk' should be kept, got tokens: %v", tokens)
+		}
+	})
+}
+
+func TestRealisticWalmartProducts(t *testing.T) {
+	svc := NewMatchingService(MatchConfig{
+		MinConfidenceThreshold: 40,
+		EnableFuzzyMatching:    true,
+		FuzzyEditDistance:      1,
+	})
+	ctx := context.Background()
+
+	testCases := []struct {
+		name          string
+		productName   string
+		brand         string
+		usdaFoods     []domain.USDAFood
+		wantFdcID     string
+		minConfidence float64
+	}{
+		{
+			name:        "whole milk matches correctly",
+			productName: "Whole Milk, Vitamin D, Gallon, 128 fl oz",
+			brand:       "Great Value",
+			usdaFoods: []domain.USDAFood{
+				{FdcID: 111, Description: "Skim Milk", DataType: "Foundation"},
+				{FdcID: 222, Description: "Great Value Whole Milk, Vitamin D", DataType: "Branded"},
+				{FdcID: 333, Description: "Chocolate Milk", DataType: "Foundation"},
+			},
+			wantFdcID:     "222",
+			minConfidence: 50,
+		},
+		{
+			name:        "chicken breast matches",
+			productName: "Boneless Skinless Chicken Breasts, 2.5 lb",
+			brand:       "Tyson",
+			usdaFoods: []domain.USDAFood{
+				{FdcID: 111, Description: "Tyson Boneless Skinless Chicken Breast", DataType: "Branded"},
+				{FdcID: 222, Description: "Chicken Wings", DataType: "Foundation"},
+				{FdcID: 333, Description: "Ground Beef", DataType: "Foundation"},
+			},
+			wantFdcID:     "111",
+			minConfidence: 50,
+		},
+		{
+			name:        "cereal matches",
+			productName: "Cheerios Heart Healthy Cereal, 18 oz",
+			brand:       "General Mills",
+			usdaFoods: []domain.USDAFood{
+				{FdcID: 111, Description: "Corn Flakes", DataType: "Foundation"},
+				{FdcID: 222, Description: "Cheerios, Whole Grain Oat Cereal", DataType: "Branded"},
+				{FdcID: 333, Description: "Oatmeal", DataType: "Foundation"},
+			},
+			wantFdcID:     "222",
+			minConfidence: 40,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := &domain.SearchRequest{
+				ProductName: tc.productName,
+				Brand:       tc.brand,
+			}
+
+			result, err := svc.FindBestMatch(ctx, request, tc.usdaFoods)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.FdcID != tc.wantFdcID {
+				t.Errorf("FdcID = %v, want %v", result.FdcID, tc.wantFdcID)
+			}
+
+			if result.MatchScore < tc.minConfidence {
+				t.Errorf("MatchScore = %v, want >= %v", result.MatchScore, tc.minConfidence)
+			}
+		})
+	}
 }
